@@ -34,9 +34,16 @@ const server = http.createServer((req, res) => {
   const full = path.join(__dirname, filePath);
   if (!full.startsWith(__dirname)) { res.writeHead(403); return res.end('Forbidden'); }
   fs.readFile(full, (err, data) => {
-    if (err) { res.writeHead(404); return res.end('Not found'); }
+    if (err) {
+      // Explicit no-store on the error path specifically: with no Cache-Control at all, browsers
+      // apply their own heuristic caching, and a transient 404 (a deploy mid-restart, a real
+      // crash) can get cached client-side and then "stick" even once the server is healthy
+      // again, exactly what happened live on the first Render deploy, 2026-08-09.
+      res.writeHead(404, { 'Cache-Control': 'no-store' });
+      return res.end('Not found');
+    }
     const ext = path.extname(full);
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
     res.end(data);
   });
 });
