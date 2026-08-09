@@ -2,7 +2,11 @@
 // so a repeat visit loads instantly and the PWA install check passes. Never touches the
 // WebSocket connection (a service worker cannot intercept ws:// anyway) and never claims the
 // game works offline, it structurally can't: real-time voting needs the live server.
-const CACHE_NAME = 'whosmost-shell-v1';
+// v2: fixes a real bug found live (2026-08-09) — the fetch handler below used to cache ANY
+// response including a 404/500, so a transient server error got permanently served from cache
+// afterward even once the server was healthy again. The version bump also flushes that
+// already-poisoned v1 cache via the activate handler's cleanup below.
+const CACHE_NAME = 'whosmost-shell-v2';
 const SHELL_FILES = ['/', '/style.css', '/script.js', '/manifest.json', '/assets/icon-192.png', '/assets/icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -26,8 +30,13 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(event.request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          // Only cache a genuinely good response. Caching a transient 404/500 here was the
+          // real bug: it made a server hiccup stick around forever, served from cache, even
+          // after the origin was healthy again.
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
           return res;
         })
         .catch(() => caches.match(event.request))
