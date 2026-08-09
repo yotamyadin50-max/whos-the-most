@@ -1,0 +1,13 @@
+{
+  "name": "whos-the-most",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Who's The Most (מי הכי): real-time party voting game",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.21.1"
+  }
+}

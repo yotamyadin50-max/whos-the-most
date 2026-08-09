@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>מי הכי? | Who's The Most</title>
+<meta name="description" content="משחק מסיבה חי עם חברים. מצביעים מי הכי מה, בלי לשאול בפנים. בלי הרשמה, בלי מייל, רק שם.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%22%232E1065%22/><text x=%2250%22 y=%2266%22 font-size=%2255%22 text-anchor=%22middle%22 fill=%22%23FFD23F%22>?</text></svg>">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#2E1065">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="מי הכי">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<button id="btn-sound-toggle" aria-label="השתק צלילים" aria-pressed="false"></button>
+<div class="app">
+
+  <!-- מסך 1: בית -->
+  <section class="screen active" id="screen-home" data-view="home">
+    <h1 class="headline">מי הכי?</h1>
+    <p class="subhead">משחק חי עם החברים. מצביעים מי הכי מה, בלי לשאול בפנים.</p>
+    <div class="speech-bubble-decor speech-bubble" id="home-example-question" aria-hidden="true" style="max-width:220px;font-size:16px;">מי הכי יצחק מהבדיחות של עצמו?</div>
+    <div class="stack" style="margin-top:var(--space-4)">
+      <button class="btn-primary btn-block" id="btn-create">צור חדר חדש</button>
+      <button class="btn-secondary btn-block" id="btn-show-join">יש לי קוד</button>
+      <div id="join-code-row" class="hidden stack">
+        <input type="text" id="room-code-input" maxlength="4" placeholder="קוד בן 4 תווים" dir="ltr">
+        <div id="join-error" class="muted hidden" role="alert" style="color:var(--error)"></div>
+        <button class="btn-primary btn-block" id="btn-go-join">הצטרף</button>
+      </div>
+    </div>
+    <p class="muted trust-line">בלי הרשמה. בלי מייל. רק שם.</p>
+    <p class="muted center">Who's The Most</p>
+  </section>
+
+  <!-- מסך 2: הזנת שם -->
+  <section class="screen" id="screen-name" data-view="name">
+    <div class="grow stack center" style="justify-content:center;">
+      <h2>איך קוראים לך?</h2>
+      <div class="avatar-preview tile-blue" id="avatar-preview" aria-hidden="true">?</div>
+      <input type="text" id="name-input" maxlength="12" placeholder="השם שלך" dir="auto" autofocus>
+      <p class="muted hidden" id="name-hint">תזין שם כדי להמשיך</p>
+    </div>
+    <div class="sticky-bottom">
+      <button class="btn-primary btn-block" id="btn-name-continue" disabled>המשך</button>
+    </div>
+  </section>
+
+  <!-- מסך 4: חדר המתנה -->
+  <section class="screen" id="screen-lobby" data-view="lobby">
+    <div class="room-code-card">
+      <p class="label">קוד החדר</p>
+      <div id="room-code-display">----</div>
+      <div class="share-row" style="margin-top:var(--space-2)">
+        <button class="btn-success" id="btn-share-whatsapp">שתף בוואטסאפ</button>
+        <button class="btn-secondary" id="btn-copy-link">העתק קישור</button>
+      </div>
+    </div>
+    <div class="stack" style="margin-top:var(--space-3)">
+      <p class="muted" id="question-count-label">כמות שאלות: 10</p>
+      <div class="count-toggle-row hidden" id="question-count-row">
+        <button class="count-toggle-btn" data-count="5">5</button>
+        <button class="count-toggle-btn" data-count="10">10</button>
+        <button class="count-toggle-btn" data-count="15">15</button>
+      </div>
+    </div>
+    <div class="stack" style="margin-top:var(--space-3)">
+      <h2 id="players-heading">בחדר עכשיו (0)</h2>
+      <div id="players-list"></div>
+    </div>
+    <div class="sticky-bottom">
+      <button class="btn-primary btn-block" id="btn-start-game" disabled>התחל משחק</button>
+      <p class="muted center" id="start-blocked-reason"></p>
+      <p class="muted center hidden" id="waiting-for-host">מחכים שהמארח יתחיל</p>
+    </div>
+  </section>
+
+  <!-- מסך 5א: ספירה לאחור -->
+  <section class="screen" id="screen-countdown" data-view="countdown">
+    <div id="countdown-number">3</div>
+  </section>
+
+  <!-- מסך 5ב: שאלה + הצבעה -->
+  <section class="screen" id="screen-question" data-view="question">
+    <div class="speech-bubble" id="question-text"></div>
+    <p class="muted center" id="vote-count" style="margin-top:var(--space-2)"></p>
+    <div id="vote-grid"></div>
+  </section>
+
+  <!-- מסך 5ג: תוצאת סבב -->
+  <section class="screen" id="screen-result" data-view="result">
+    <div id="result-name"></div>
+    <div id="result-votes"></div>
+  </section>
+
+  <!-- מסך 6: תוצאות סופיות -->
+  <section class="screen" id="screen-final" data-view="final">
+    <div class="grow stack" style="overflow-y:auto;">
+      <h1 class="center">הסבב נגמר</h1>
+      <div class="speech-bubble" id="personal-highlight-card" style="font-size:17px;"></div>
+      <h2>מי ניצח הכי הרבה שאלות</h2>
+      <div id="leaderboard"></div>
+      <h2>סה"כ קולות</h2>
+      <div id="total-votes-table"></div>
+    </div>
+    <div class="sticky-bottom final-actions">
+      <button class="btn-primary" id="btn-continue-playing">עוד סבב</button>
+      <button class="btn-secondary" id="btn-exit">לצאת</button>
+    </div>
+  </section>
+
+  <!-- ממתין לסיבוב הבא (הצטרפות תוך כדי משחק) -->
+  <section class="screen" id="screen-waiting-next-round" data-view="waiting-next-round">
+    <h2>מצטרפים...</h2>
+    <p class="muted">מחכים לסיבוב הבא</p>
+  </section>
+
+  <!-- שגיאה -->
+  <section class="screen" id="screen-error" data-view="error">
+    <h2 id="error-message">לא מצאנו חדר עם הקוד הזה</h2>
+    <button class="btn-primary" id="btn-error-home">חזרה למסך הבית</button>
+  </section>
+
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="live-region" aria-live="polite" class="hidden"></div>
+<script src="/script.js"></script>
+</body>
+</html>
