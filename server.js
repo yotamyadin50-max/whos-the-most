@@ -12,6 +12,12 @@ const { QUESTIONS, CLUSTER_SIZE } = require('./pack.js');
 const PORT = process.env.PORT || 8600;
 const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
 
+// Last-resort safety net, defense in depth alongside the specific server/wss/socket handlers
+// below: log and keep the process alive instead of letting one bad request take the whole
+// room-hosting server down for everyone currently connected.
+process.on('uncaughtException', (err) => console.error('[uncaughtException]', err.stack || err.message));
+process.on('unhandledRejection', (err) => console.error('[unhandledRejection]', err));
+
 const MIN_PLAYERS = 3;
 const MAX_PLAYERS = 20;
 const VOTE_SECONDS = 15;
@@ -266,7 +272,18 @@ function resetRoundState(room) {
   room.personalHighlight = {};
 }
 
+// Node treats an unhandled 'error' event on any EventEmitter (the WebSocketServer, the HTTP
+// server, or an individual client socket) as a fatal, process-crashing exception. Real internet
+// traffic (a phone losing signal mid-connection, a proxy health check, a malformed upgrade
+// request) triggers these constantly; local single-machine testing essentially never does,
+// which is exactly why this was invisible until the real Render deploy. Confirmed live 2026-08-09:
+// the deployed server was crash-looping (curl showed the site flapping between working and
+// Render's "no-server" 404 for 100+ seconds straight, never stabilizing) from exactly this gap.
+server.on('error', (err) => console.error('[http server error]', err.message));
+wss.on('error', (err) => console.error('[wss error]', err.message));
+
 wss.on('connection', (ws) => {
+  ws.on('error', (err) => console.error('[client ws error]', err.message));
   ws.on('message', (raw) => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
 
@@ -382,4 +399,5 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-server.listen(PORT, () => console.log(`Who's The Most running on http://localhost:${PORT}`));
+// Explicit 0.0.0.0 bind, per Render's own hosting requirement, not just Node's default behavior.
+server.listen(PORT, '0.0.0.0', () => console.log(`Who's The Most running on port ${PORT}`));
