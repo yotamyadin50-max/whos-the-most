@@ -289,7 +289,28 @@ function resetRoundState(room) {
 server.on('error', (err) => console.error('[http server error]', err.message));
 wss.on('error', (err) => console.error('[wss error]', err.message));
 
+// Keepalive heartbeat: a reverse proxy in front of the app (Render's, Cloudflare's) commonly
+// closes a WebSocket connection that's carried no traffic for a while, even though the app
+// itself is still healthy. A lobby with 2 people waiting for a 3rd, or someone reading the
+// screen before typing their name, can easily sit idle long enough to hit that. Confirmed as a
+// real user-facing bug live, 2026-08-09: "clicking Continue does nothing" once the room's been
+// open a bit, because the socket had already been silently dropped with zero client feedback.
+// Standard `ws` idiom: ping every client periodically; a client whose pong never comes back
+// (genuinely dead, not just idle) gets terminated so its slot/room state can clean up properly
+// via the existing disconnect handling below, instead of lingering as a phantom connection.
+function heartbeat() { this.isAlive = true; }
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) return ws.terminate();
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 25000);
+wss.on('close', () => clearInterval(heartbeatInterval));
+
 wss.on('connection', (ws) => {
+  ws.isAlive = true;
+  ws.on('pong', heartbeat);
   ws.on('error', (err) => console.error('[client ws error]', err.message));
   ws.on('message', (raw) => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }

@@ -82,6 +82,7 @@
     myVote: null,
     questionCount: 10,
     soundEnabled: localStorage.getItem('whosmost_sound') !== 'off',
+    intentionalClose: false,
   };
 
   function showScreen(name) {
@@ -97,12 +98,41 @@
   function wsUrl() { const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'; return `${proto}//${location.host}`; }
   function send(payload) { if (state.ws && state.ws.readyState === WebSocket.OPEN) state.ws.send(JSON.stringify(payload)); }
 
-  function connect(onOpen) {
+  // Auto-reconnect with a visible banner, per a real bug found live, 2026-08-09: a proxy in
+  // front of the deployed server can silently drop an idle WebSocket (a lobby waiting on a 3rd
+  // player, someone reading the screen before typing a name), and with no reconnect logic the
+  // app just sat there doing nothing on the next click, zero feedback. Server-side keepalive
+  // pings (server.js) fix the root idle-drop cause; this is the client-side safety net for a
+  // genuine drop (a real network blip, a backgrounded phone) so it recovers on its own instead
+  // of requiring a manual page reload.
+  let reconnectAttempt = 0;
+  let reconnectTimer = null;
+  let bootOnOpen = null;
+  function showBanner(text) { const el = document.getElementById('connection-banner'); el.textContent = text; el.classList.remove('hidden'); }
+  function hideBanner() { document.getElementById('connection-banner').classList.add('hidden'); }
+
+  function openSocket() {
     state.ws = new WebSocket(wsUrl());
-    state.ws.addEventListener('open', () => onOpen && onOpen());
+    state.ws.addEventListener('open', () => {
+      const isReconnect = reconnectAttempt > 0;
+      reconnectAttempt = 0;
+      hideBanner();
+      if (isReconnect && state.roomCode && state.playerId) {
+        send({ type: 'rejoin', code: state.roomCode, playerId: state.playerId });
+      } else if (!isReconnect && bootOnOpen) {
+        bootOnOpen();
+      }
+    });
     state.ws.addEventListener('message', (ev) => { let msg; try { msg = JSON.parse(ev.data); } catch { return; } handleMessage(msg); });
-    state.ws.addEventListener('close', () => { /* the reconnect grace period lives server-side; a real reconnect UI is a future pass */ });
+    state.ws.addEventListener('close', () => {
+      if (state.intentionalClose) return;
+      reconnectAttempt++;
+      showBanner('החיבור נותק, מתחבר מחדש...');
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(openSocket, Math.min(1000 * reconnectAttempt, 5000));
+    });
   }
+  function connect(onOpen) { bootOnOpen = onOpen; openSocket(); }
 
   function saveSession() {
     if (state.roomCode && state.playerId) {

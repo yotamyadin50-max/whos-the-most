@@ -66,6 +66,12 @@ p { margin: 0; }
 }
 #btn-sound-toggle svg { width: 18px; height: 18px; }
 
+#connection-banner {
+  position: fixed; top: 0; inset-inline: 0; z-index: 20;
+  background: var(--error); color: var(--ink);
+  text-align: center; padding: 8px; font-size: 14px; font-weight: 500;
+}
+
 .app {
   max-width: 480px;
   margin: 0 auto;
