@@ -288,8 +288,7 @@ function maybeEarlyResolve(room) {
   if (room.votes.size >= total) resolveRound(room);
 }
 
-function endGame(room) {
-  room.phase = 'final';
+function buildFinalPayload(room) {
   const leaderboard = [...room.players.keys()]
     .map(id => ({ id, name: room.players.get(id).displayName, emoji: room.players.get(id).emoji, wins: room.roundWins[id] || 0 }))
     .sort((a, b) => b.wins - a.wins);
@@ -298,7 +297,12 @@ function endGame(room) {
     .sort((a, b) => b.votes - a.votes);
   const personalHighlights = {};
   for (const id of room.players.keys()) personalHighlights[id] = room.personalHighlight[id] || null;
-  broadcast(room, { type: 'game_over', leaderboard, totalVotesTable, personalHighlights });
+  return { leaderboard, totalVotesTable, personalHighlights };
+}
+
+function endGame(room) {
+  room.phase = 'final';
+  broadcast(room, { type: 'game_over', ...buildFinalPayload(room) });
   touchRoom(room);
 }
 
@@ -390,6 +394,13 @@ wss.on('connection', (ws) => {
             ? { text: room.roundQuestions[room.currentRoundIndex], index: room.currentRoundIndex, total: room.roundQuestions.length, bonus: room.currentRoundIndex === room.roundQuestions.length - 1 }
             : null,
         });
+        // A rejoin during 'question' gets its state via `current` above, and 'countdown'/'result'
+        // self-heal within a few seconds via the next automatic phase broadcast either way. 'final'
+        // does not: the game just sits there until someone clicks continue/exit, so a reconnecting
+        // player (phone locked, tab reloaded) would otherwise be stuck on a generic "joining..."
+        // screen indefinitely instead of seeing the results everyone else already sees. Found via
+        // real mobile testing the night before a real family game, 2026-08-10.
+        if (room.phase === 'final') send(ws, { type: 'game_over', ...buildFinalPayload(room) });
         broadcastLobbyState(room);
         return;
       }
