@@ -156,6 +156,14 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
 }
 .avatar-preview.bump { transform: scale(1.05); }
 
+.emoji-picker-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 280px; align-self: center; }
+.emoji-btn {
+  width: 44px; height: 44px; min-height: 44px; padding: 0; font-size: 22px; line-height: 1; border-radius: 12px;
+  background: var(--surface); border: 3px solid var(--outline);
+  display: flex; align-items: center; justify-content: center;
+}
+.emoji-btn.selected { background: var(--accent); border-color: var(--accent); }
+
 /* --- Lobby --- */
 .room-code-card {
   background: var(--surface);

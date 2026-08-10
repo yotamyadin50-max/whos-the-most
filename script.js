@@ -82,6 +82,7 @@
     myVote: null,
     questionCount: 10,
     customQuestions: [],
+    emoji: null,
     soundEnabled: localStorage.getItem('whosmost_sound') !== 'off',
     intentionalClose: false,
   };
@@ -167,6 +168,28 @@
   });
 
   // ---------- Name entry ----------
+  // Personal emoji avatar (idea-manager brainstorm #5, 2026-08-10): a fixed curated set, picked
+  // once at name entry, shown instead of the first-letter avatar everywhere a player appears.
+  // Kept optional (a re-click deselects back to the letter avatar) since the letter avatar
+  // already reads fine on its own, this is purely additive personalization.
+  function updateAvatarPreview() {
+    const v = nameInput.value.trim();
+    if (state.emoji) {
+      avatarPreview.textContent = state.emoji;
+    } else if (v) {
+      avatarPreview.textContent = v[0];
+    } else {
+      avatarPreview.textContent = '?';
+    }
+  }
+  document.querySelectorAll('.emoji-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const val = btn.dataset.emoji;
+      state.emoji = state.emoji === val ? null : val;
+      document.querySelectorAll('.emoji-btn').forEach(b => b.classList.toggle('selected', b.dataset.emoji === state.emoji));
+      updateAvatarPreview();
+    });
+  });
   nameInput.addEventListener('input', () => {
     const v = nameInput.value.trim();
     btnNameContinue.disabled = v.length === 0;
@@ -174,11 +197,9 @@
     if (v) {
       const color = colorForName(v);
       avatarPreview.className = 'avatar-preview tile-' + color + ' bump';
-      avatarPreview.textContent = v.trim()[0];
       setTimeout(() => avatarPreview.classList.remove('bump'), 150);
-    } else {
-      avatarPreview.textContent = '?';
     }
+    updateAvatarPreview();
   });
   btnNameContinue.addEventListener('click', () => {
     const name = nameInput.value.trim();
@@ -187,9 +208,9 @@
     if (state.mode === 'create') {
       // ישר לחדר עם ברירת מחדל (10 שאלות, ניתנת לשינוי בלובי עצמו), לא עוד מסך
       // חוסם לפני הקוד לשיתוף, per Critic finding #1 (_process/09-critic-review.md).
-      send({ type: 'create_room', name, questionCount: 10 });
+      send({ type: 'create_room', name, questionCount: 10, emoji: state.emoji });
     } else if (state.mode === 'join') {
-      send({ type: 'join_room', code: state.pendingJoinCode, name });
+      send({ type: 'join_room', code: state.pendingJoinCode, name, emoji: state.emoji });
     }
   });
   // "הצטרף" label when arriving via a room link, per _process/02-site-planner-plan.md's warm-entry flow.
@@ -274,7 +295,7 @@
     msg.players.forEach(p => {
       const chip = document.createElement('div');
       chip.className = 'player-chip';
-      chip.innerHTML = `<span class="dot tile-${p.color}">${bidiSafe((p.name || '?')[0])}</span><span>${bidiSafe(p.name)}${p.connected ? '' : ' (מתנתק)'}</span>`;
+      chip.innerHTML = `<span class="dot tile-${p.color}">${p.emoji || bidiSafe((p.name || '?')[0])}</span><span>${bidiSafe(p.name)}${p.connected ? '' : ' (מתנתק)'}</span>`;
       list.appendChild(chip);
     });
     if (grew) sfxJoin();
@@ -326,6 +347,7 @@
   function renderQuestion(msg) {
     state.myVote = null;
     state.players = msg.players;
+    document.getElementById('bonus-badge').classList.toggle('hidden', !msg.bonus);
     document.getElementById('question-text').innerHTML = bidiSafe(msg.text);
     document.getElementById('vote-count').textContent = `0/${msg.players.length} הצביעו`;
     const grid = document.getElementById('vote-grid');
@@ -334,7 +356,7 @@
     msg.players.forEach(p => {
       const btn = document.createElement('button');
       btn.className = `vote-btn tile-${p.color}`;
-      btn.innerHTML = bidiSafe(p.name);
+      btn.innerHTML = (p.emoji ? p.emoji + ' ' : '') + bidiSafe(p.name);
       btn.dataset.playerId = p.id;
       btn.addEventListener('click', () => {
         if (state.myVote) return;
@@ -352,14 +374,16 @@
   function renderResult(msg) {
     const nameEl = document.getElementById('result-name');
     const votesEl = document.getElementById('result-votes');
+    const pointsPhrase = msg.bonus ? `מקבלים ${msg.points} נקודות, שאלת האלופים 🏆` : 'מקבלים הכי הרבה קולות';
+    const pointsPhraseSingle = msg.bonus ? `מקבל/ת ${msg.points} נקודות, שאלת האלופים 🏆` : 'מקבל/ת הכי הרבה קולות';
     if (!msg.winners.length) {
       nameEl.textContent = 'אף אחד לא הצביע הפעם';
       votesEl.textContent = '';
     } else if (msg.tie) {
-      nameEl.innerHTML = 'תיקו! ' + joinNames(msg.winners.map(w => bidiSafe(w.name))) + ' מקבלים הכי הרבה קולות';
+      nameEl.innerHTML = 'תיקו! ' + joinNames(msg.winners.map(w => bidiSafe(w.name))) + ' ' + pointsPhrase;
       votesEl.textContent = `${msg.winners[0].votes} קולות`;
     } else {
-      nameEl.innerHTML = bidiSafe(msg.winners[0].name) + ' מקבל/ת הכי הרבה קולות';
+      nameEl.innerHTML = bidiSafe(msg.winners[0].name) + ' ' + pointsPhraseSingle;
       votesEl.textContent = `${msg.winners[0].votes} קולות`;
     }
     announce(nameEl.textContent);
@@ -377,12 +401,12 @@
     const board = document.getElementById('leaderboard');
     board.innerHTML = msg.leaderboard.map((row, i) => `
       <div class="leaderboard-row">
-        <span>${i === 0 && row.wins > 0 ? CROWN_SVG + ' ' : ''}${bidiSafe(row.name)}</span>
-        <span class="n">${row.wins} ניצחונות</span>
+        <span>${i === 0 && row.wins > 0 ? CROWN_SVG + ' ' : ''}${row.emoji ? row.emoji + ' ' : ''}${bidiSafe(row.name)}</span>
+        <span class="n">${row.wins} נקודות</span>
       </div>`).join('');
     const votes = document.getElementById('total-votes-table');
     votes.innerHTML = msg.totalVotesTable.map(row => `
-      <div class="votes-row"><span>${bidiSafe(row.name)}</span><span class="n">${row.votes}</span></div>`).join('');
+      <div class="votes-row"><span>${row.emoji ? row.emoji + ' ' : ''}${bidiSafe(row.name)}</span><span class="n">${row.votes}</span></div>`).join('');
     showScreen('final');
   }
 
@@ -416,7 +440,7 @@
         if (msg.phase === 'lobby') {
           renderLobby({ hostId: msg.hostId, players: msg.players, questionCount: msg.questionCount, customQuestions: msg.customQuestions, canStart: msg.players.length >= 3, startBlockedReason: startBlockedReason(msg.players.length) });
         } else if (msg.phase === 'question' && msg.current) {
-          renderQuestion({ text: msg.current.text, players: msg.players });
+          renderQuestion({ text: msg.current.text, bonus: msg.current.bonus, players: msg.players });
         } else {
           showScreen('waiting-next-round');
         }

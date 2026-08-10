@@ -45,6 +45,19 @@
       <div class="avatar-preview tile-blue" id="avatar-preview" aria-hidden="true">?</div>
       <input type="text" id="name-input" maxlength="12" placeholder="השם שלך" dir="auto" autofocus>
       <p class="muted hidden" id="name-hint">תזין שם כדי להמשיך</p>
+      <p class="muted center">בחרו אימוג'י אישי (אופציונלי)</p>
+      <div class="emoji-picker-row" id="emoji-picker-row">
+        <button class="emoji-btn" type="button" data-emoji="😂" aria-label="בחר אימוג'י צוחק">😂</button>
+        <button class="emoji-btn" type="button" data-emoji="🔥" aria-label="בחר אימוג'י אש">🔥</button>
+        <button class="emoji-btn" type="button" data-emoji="😎" aria-label="בחר אימוג'י מגניב">😎</button>
+        <button class="emoji-btn" type="button" data-emoji="🥳" aria-label="בחר אימוג'י חוגג">🥳</button>
+        <button class="emoji-btn" type="button" data-emoji="🎉" aria-label="בחר אימוג'י קונפטי">🎉</button>
+        <button class="emoji-btn" type="button" data-emoji="👑" aria-label="בחר אימוג'י כתר">👑</button>
+        <button class="emoji-btn" type="button" data-emoji="💥" aria-label="בחר אימוג'י פיצוץ">💥</button>
+        <button class="emoji-btn" type="button" data-emoji="🦊" aria-label="בחר אימוג'י שועל">🦊</button>
+        <button class="emoji-btn" type="button" data-emoji="🍕" aria-label="בחר אימוג'י פיצה">🍕</button>
+        <button class="emoji-btn" type="button" data-emoji="⚡" aria-label="בחר אימוג'י ברק">⚡</button>
+      </div>
     </div>
     <div class="sticky-bottom">
       <button class="btn-primary btn-block" id="btn-name-continue" disabled>המשך</button>
@@ -96,6 +109,7 @@
 
   <!-- מסך 5ב: שאלה + הצבעה -->
   <section class="screen" id="screen-question" data-view="question">
+    <p class="muted center hidden" id="bonus-badge">⭐ שאלת האלופים, נקודה כפולה!</p>
     <div class="speech-bubble" id="question-text"></div>
     <p class="muted center" id="vote-count" style="margin-top:var(--space-2)"></p>
     <div id="vote-grid"></div>
@@ -112,7 +126,7 @@
     <div class="grow stack" style="overflow-y:auto;">
       <h1 class="center">הסבב נגמר</h1>
       <div class="speech-bubble" id="personal-highlight-card" style="font-size:17px;"></div>
-      <h2>מי ניצח הכי הרבה שאלות</h2>
+      <h2>מי צבר הכי הרבה נקודות</h2>
       <div id="leaderboard"></div>
       <h2>סה"כ קולות</h2>
       <div id="total-votes-table"></div>

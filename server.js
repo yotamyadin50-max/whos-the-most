@@ -29,6 +29,11 @@ const MAX_CUSTOM_QUESTIONS = 30; // per-room cap, in-memory only, prevents one r
 const MAX_CUSTOM_QUESTION_LEN = 120; // roughly matches the bank's own question length
 
 const AVATAR_COLORS = ['blue', 'pink', 'green', 'orange', 'yellow', 'cyan'];
+// Curated, closed set, not free-text emoji input: keeps validation trivial (exact membership
+// check, no unicode-range/length edge cases to get wrong) and mirrors the same fixed list the
+// client's picker renders, per idea-manager brainstorm #5, 2026-08-10.
+const ALLOWED_EMOJI = ['😂', '🔥', '😎', '🥳', '🎉', '👑', '💥', '🦊', '🍕', '⚡'];
+const BONUS_POINTS = 2; // last question of the round, "שאלת האלופים", per idea-manager brainstorm #3
 
 const server = http.createServer((req, res) => {
   let filePath = req.url.split('?')[0];
@@ -68,7 +73,7 @@ function shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0;
 function send(ws, msg) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); }
 function activePlayers(room) { return [...room.players.values()].filter(p => p.connected); }
 function broadcast(room, msg) { for (const p of activePlayers(room)) send(p.ws, msg); }
-function publicPlayer(p) { return { id: p.id, name: p.displayName, color: p.color, connected: p.connected }; }
+function publicPlayer(p) { return { id: p.id, name: p.displayName, color: p.color, emoji: p.emoji, connected: p.connected }; }
 function publicPlayers(room) { return [...room.players.values()].map(publicPlayer); }
 
 function uniqueDisplayName(room, rawName) {
@@ -189,11 +194,12 @@ function createRoom(questionCount) {
   return room;
 }
 
-function addPlayer(room, ws, rawName, { asHost } = {}) {
+function addPlayer(room, ws, rawName, rawEmoji, { asHost } = {}) {
   const id = genId();
   const color = AVATAR_COLORS[room.joinOrder.length % AVATAR_COLORS.length];
   const displayName = uniqueDisplayName(room, rawName);
-  const player = { id, ws, rawName, displayName, color, connected: true, disconnectTimer: null };
+  const emoji = ALLOWED_EMOJI.includes(rawEmoji) ? rawEmoji : null;
+  const player = { id, ws, rawName, displayName, color, emoji, connected: true, disconnectTimer: null };
   room.players.set(id, player);
   room.joinOrder.push(id);
   if (asHost || !room.hostId) room.hostId = id;
@@ -241,8 +247,9 @@ function startQuestion(room) {
   room.phase = 'question';
   room.votes.clear();
   const text = room.roundQuestions[room.currentRoundIndex];
+  const bonus = room.currentRoundIndex === room.roundQuestions.length - 1; // "שאלת האלופים", idea-manager brainstorm #3
   broadcast(room, {
-    type: 'question', text, index: room.currentRoundIndex, total: room.roundQuestions.length,
+    type: 'question', text, index: room.currentRoundIndex, total: room.roundQuestions.length, bonus,
     players: publicPlayers(room),
   });
   clearTimeout(room.roundTimer);
@@ -265,9 +272,11 @@ function resolveRound(room) {
   let max = 0;
   for (const c of Object.values(tally)) if (c > max) max = c;
   const winnerIds = max > 0 ? Object.keys(tally).filter(id => tally[id] === max) : [];
-  for (const id of winnerIds) room.roundWins[id] = (room.roundWins[id] || 0) + 1;
+  const bonus = room.currentRoundIndex === room.roundQuestions.length - 1;
+  const points = bonus ? BONUS_POINTS : 1;
+  for (const id of winnerIds) room.roundWins[id] = (room.roundWins[id] || 0) + points;
   const winners = winnerIds.map(id => ({ id, name: room.players.get(id)?.displayName || '?', votes: max }));
-  broadcast(room, { type: 'result', winners, tie: winners.length > 1, votedCount: room.votes.size });
+  broadcast(room, { type: 'result', winners, tie: winners.length > 1, votedCount: room.votes.size, bonus, points });
   touchRoom(room);
   clearTimeout(room.roundTimer);
   room.roundTimer = setTimeout(() => startCountdown(room), RESULT_DISPLAY_MS);
@@ -282,10 +291,10 @@ function maybeEarlyResolve(room) {
 function endGame(room) {
   room.phase = 'final';
   const leaderboard = [...room.players.keys()]
-    .map(id => ({ id, name: room.players.get(id).displayName, wins: room.roundWins[id] || 0 }))
+    .map(id => ({ id, name: room.players.get(id).displayName, emoji: room.players.get(id).emoji, wins: room.roundWins[id] || 0 }))
     .sort((a, b) => b.wins - a.wins);
   const totalVotesTable = [...room.players.keys()]
-    .map(id => ({ id, name: room.players.get(id).displayName, votes: room.totalVotesReceived[id] || 0 }))
+    .map(id => ({ id, name: room.players.get(id).displayName, emoji: room.players.get(id).emoji, votes: room.totalVotesReceived[id] || 0 }))
     .sort((a, b) => b.votes - a.votes);
   const personalHighlights = {};
   for (const id of room.players.keys()) personalHighlights[id] = room.personalHighlight[id] || null;
@@ -297,9 +306,9 @@ function flushPendingJoins(room) {
   if (!room.pendingJoins.length) return;
   const queued = room.pendingJoins;
   room.pendingJoins = [];
-  for (const { ws, rawName } of queued) {
+  for (const { ws, rawName, emoji } of queued) {
     if (room.players.size >= MAX_PLAYERS) { send(ws, { type: 'room_full' }); continue; }
-    const player = addPlayer(room, ws, rawName);
+    const player = addPlayer(room, ws, rawName, emoji);
     send(ws, { type: 'room_joined', code: room.code, playerId: player.id, hostId: room.hostId, phase: room.phase, players: publicPlayers(room) });
   }
   broadcastLobbyState(room);
@@ -353,7 +362,7 @@ wss.on('connection', (ws) => {
     if (msg.type === 'create_room') {
       const count = [5, 10, 15].includes(msg.questionCount) ? msg.questionCount : 10;
       const room = createRoom(count);
-      const player = addPlayer(room, ws, msg.name, { asHost: true });
+      const player = addPlayer(room, ws, msg.name, msg.emoji, { asHost: true });
       send(ws, { type: 'room_created', code: room.code, playerId: player.id, hostId: room.hostId, players: publicPlayers(room), questionCount: room.questionCount, customQuestions: publicCustomQuestions(room) });
       return;
     }
@@ -378,16 +387,16 @@ wss.on('connection', (ws) => {
           type: 'room_joined', code: room.code, playerId: existing.id, hostId: room.hostId, phase: room.phase,
           players: publicPlayers(room), questionCount: room.questionCount, customQuestions: publicCustomQuestions(room),
           current: room.phase === 'question'
-            ? { text: room.roundQuestions[room.currentRoundIndex], index: room.currentRoundIndex, total: room.roundQuestions.length }
+            ? { text: room.roundQuestions[room.currentRoundIndex], index: room.currentRoundIndex, total: room.roundQuestions.length, bonus: room.currentRoundIndex === room.roundQuestions.length - 1 }
             : null,
         });
         broadcastLobbyState(room);
         return;
       }
 
-      if (room.phase !== 'lobby') { room.pendingJoins.push({ ws, rawName: msg.name }); return send(ws, { type: 'room_in_progress' }); }
+      if (room.phase !== 'lobby') { room.pendingJoins.push({ ws, rawName: msg.name, emoji: msg.emoji }); return send(ws, { type: 'room_in_progress' }); }
       if (room.players.size >= MAX_PLAYERS) return send(ws, { type: 'room_full' });
-      const player = addPlayer(room, ws, msg.name);
+      const player = addPlayer(room, ws, msg.name, msg.emoji);
       send(ws, { type: 'room_joined', code: room.code, playerId: player.id, hostId: room.hostId, phase: room.phase, players: publicPlayers(room), questionCount: room.questionCount, customQuestions: publicCustomQuestions(room) });
       broadcastLobbyState(room);
       return;
