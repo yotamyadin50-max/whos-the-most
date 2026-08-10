@@ -81,6 +81,7 @@
     players: [],
     myVote: null,
     questionCount: 10,
+    customQuestions: [],
     soundEnabled: localStorage.getItem('whosmost_sound') !== 'off',
     intentionalClose: false,
   };
@@ -230,6 +231,35 @@
     });
   });
 
+  // ---------- Custom questions (personalized packs) ----------
+  const customQInput = document.getElementById('custom-q-input');
+  const customQError = document.getElementById('custom-q-error');
+  function submitCustomQuestion() {
+    const text = customQInput.value.trim();
+    if (!text) return;
+    send({ type: 'add_custom_question', text });
+    customQInput.value = '';
+    customQError.classList.add('hidden');
+  }
+  document.getElementById('btn-add-custom-q').addEventListener('click', submitCustomQuestion);
+  customQInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') submitCustomQuestion(); });
+
+  function renderCustomQuestions() {
+    const list = document.getElementById('custom-q-list');
+    list.innerHTML = '';
+    state.customQuestions.forEach(q => {
+      const chip = document.createElement('div');
+      chip.className = 'custom-q-chip';
+      const canRemove = q.authorId === state.playerId || state.isHost;
+      chip.innerHTML = `<div><span class="custom-q-text">${bidiSafe(q.text)}</span><span class="custom-q-author">${bidiSafe(q.authorName)}</span></div>` +
+        (canRemove ? `<button class="btn-remove-q" data-id="${q.id}" aria-label="הסר שאלה">×</button>` : '');
+      list.appendChild(chip);
+    });
+    list.querySelectorAll('.btn-remove-q').forEach(btn => {
+      btn.addEventListener('click', () => send({ type: 'remove_custom_question', questionId: btn.dataset.id }));
+    });
+  }
+
   function renderLobby(msg) {
     state.hostId = msg.hostId;
     state.isHost = msg.hostId === state.playerId;
@@ -255,6 +285,9 @@
     countRow.querySelectorAll('.count-toggle-btn').forEach(btn => {
       btn.classList.toggle('selected', Number(btn.dataset.count) === state.questionCount);
     });
+
+    if (Array.isArray(msg.customQuestions)) state.customQuestions = msg.customQuestions;
+    renderCustomQuestions();
 
     const startBtn = document.getElementById('btn-start-game');
     const reasonEl = document.getElementById('start-blocked-reason');
@@ -373,7 +406,7 @@
         state.roomCode = msg.code; state.playerId = msg.playerId; state.hostId = msg.hostId;
         saveSession();
         history.replaceState(null, '', `/room/${msg.code}`);
-        renderLobby({ hostId: msg.hostId, players: msg.players, questionCount: msg.questionCount, canStart: msg.players.length >= 3, startBlockedReason: startBlockedReason(msg.players.length) });
+        renderLobby({ hostId: msg.hostId, players: msg.players, questionCount: msg.questionCount, customQuestions: msg.customQuestions, canStart: msg.players.length >= 3, startBlockedReason: startBlockedReason(msg.players.length) });
         break;
 
       case 'room_joined':
@@ -381,7 +414,7 @@
         saveSession();
         history.replaceState(null, '', `/room/${msg.code}`);
         if (msg.phase === 'lobby') {
-          renderLobby({ hostId: msg.hostId, players: msg.players, questionCount: msg.questionCount, canStart: msg.players.length >= 3, startBlockedReason: startBlockedReason(msg.players.length) });
+          renderLobby({ hostId: msg.hostId, players: msg.players, questionCount: msg.questionCount, customQuestions: msg.customQuestions, canStart: msg.players.length >= 3, startBlockedReason: startBlockedReason(msg.players.length) });
         } else if (msg.phase === 'question' && msg.current) {
           renderQuestion({ text: msg.current.text, players: msg.players });
         } else {
@@ -414,6 +447,11 @@
       case 'room_state':
         state.roomCode = msg.code; state.hostId = msg.hostId;
         if (msg.phase === 'lobby') renderLobby(msg);
+        break;
+
+      case 'custom_question_rejected':
+        customQError.textContent = msg.reason === 'limit' ? 'הגעתם למספר המקסימלי של שאלות לחדר (30)' : 'אי אפשר להוסיף שאלה ריקה';
+        customQError.classList.remove('hidden');
         break;
 
       case 'countdown':

@@ -70,6 +70,15 @@
       </div>
     </div>
     <div class="stack" style="margin-top:var(--space-3)">
+      <p class="muted">הוסיפו שאלה אישית לחדר (אופציונלי)</p>
+      <div class="custom-q-add-row">
+        <input type="text" id="custom-q-input" maxlength="120" placeholder="מי הכי... (השאלה שלכם)">
+        <button class="btn-secondary" id="btn-add-custom-q">הוסף</button>
+      </div>
+      <p class="muted hidden" id="custom-q-error" role="alert" style="color:var(--error)"></p>
+      <div id="custom-q-list"></div>
+    </div>
+    <div class="stack" style="margin-top:var(--space-3)">
       <h2 id="players-heading">בחדר עכשיו (0)</h2>
       <div id="players-list"></div>
     </div>

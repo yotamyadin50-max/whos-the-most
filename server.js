@@ -25,6 +25,8 @@ const COUNTDOWN_SECONDS = 3;
 const RESULT_DISPLAY_MS = 4000;
 const ROOM_IDLE_MS = 30 * 60 * 1000; // 30 minutes, per _process/02-site-planner-plan.md edge case 4
 const RECONNECT_GRACE_MS = 60 * 1000; // per edge case 5
+const MAX_CUSTOM_QUESTIONS = 30; // per-room cap, in-memory only, prevents one room ballooning state
+const MAX_CUSTOM_QUESTION_LEN = 120; // roughly matches the bank's own question length
 
 const AVATAR_COLORS = ['blue', 'pink', 'green', 'orange', 'yellow', 'cyan'];
 
@@ -88,11 +90,16 @@ function canStart(room) {
   return { ok: true, reason: null };
 }
 
+function publicCustomQuestions(room) {
+  return room.customQuestions.map(q => ({ id: q.id, text: q.text, authorId: q.authorId, authorName: q.authorName }));
+}
+
 function broadcastLobbyState(room) {
   const start = canStart(room);
   broadcast(room, {
     type: 'room_state', code: room.code, phase: room.phase, hostId: room.hostId,
     players: publicPlayers(room), questionCount: room.questionCount, canStart: start.ok, startBlockedReason: start.reason,
+    customQuestions: publicCustomQuestions(room),
   });
 }
 
@@ -102,32 +109,58 @@ function touchRoom(room) { room.lastActivity = Date.now(); }
 // not flat random, so a single round can't accidentally clump onto one topic. Round-robins a
 // shuffled cluster order, taking one not-yet-shown question per cluster per pass, per the
 // user's explicit request for real topic variety within a round, 2026-08-09.
+//
+// A room's own custom questions (2026-08-10, "personalized question packs") ride the exact same
+// round-robin as one MORE cluster, not a separate injected slot: this gives them the same
+// per-pass fairness as any single 10-question bank topic (shown roughly once per round if
+// available, never flooding), with zero special-casing of the selection algorithm itself. They
+// track "already shown" separately (room.shownCustomIds) since they don't live in the global
+// QUESTIONS array and must never bank-reset (a group's own inside joke shouldn't vanish forever
+// just because the 420-question bank cycled).
 function pickRoundQuestions(room, n) {
   const clusterCount = Math.ceil(QUESTIONS.length / CLUSTER_SIZE);
-  let available = QUESTIONS.map((_, i) => i).filter(i => !room.shownIndices.has(i));
-  if (available.length < n) { room.shownIndices.clear(); available = QUESTIONS.map((_, i) => i); }
-
-  const byCluster = Array.from({ length: clusterCount }, () => []);
-  for (const i of available) byCluster[Math.floor(i / CLUSTER_SIZE)].push(i);
-  for (let i = 0; i < byCluster.length; i++) byCluster[i] = shuffle(byCluster[i]);
+  let availableBank = QUESTIONS.map((_, i) => i).filter(i => !room.shownIndices.has(i));
+  let availableCustom = room.customQuestions.filter(q => !room.shownCustomIds.has(q.id));
+  if (availableBank.length + availableCustom.length < n) { room.shownIndices.clear(); availableBank = QUESTIONS.map((_, i) => i); }
 
   const picked = [];
-  let clusterOrder = shuffle(byCluster.map((_, i) => i));
+  // Guarantee at least one of the room's own custom questions actually shows up, whenever any
+  // are available: plain round-robin fairness only gives the custom "cluster" the same odds as
+  // any single bank topic, so a short round (e.g. 15 picks across 43 clusters) has just a ~35%
+  // chance of touching it at all. A group that just added a question to play with THIS game
+  // reasonably expects to see it, not maybe next game. Caught in testing before shipping, 2026-08-10.
+  if (availableCustom.length > 0 && n > 0) {
+    const shuffledCustom = shuffle(availableCustom);
+    const guaranteed = shuffledCustom.shift();
+    picked.push({ type: 'custom', id: guaranteed.id, text: guaranteed.text });
+    availableCustom = shuffledCustom;
+  }
+
+  const byCluster = Array.from({ length: clusterCount }, () => []);
+  for (const i of availableBank) byCluster[Math.floor(i / CLUSTER_SIZE)].push({ type: 'bank', index: i });
+  for (let i = 0; i < byCluster.length; i++) byCluster[i] = shuffle(byCluster[i]);
+  const customCluster = shuffle(availableCustom.map(q => ({ type: 'custom', id: q.id, text: q.text })));
+  const clusters = [...byCluster, customCluster];
+
+  let clusterOrder = shuffle(clusters.map((_, i) => i));
   let cursor = 0;
   while (picked.length < n) {
     if (cursor >= clusterOrder.length) {
-      if (byCluster.every(list => list.length === 0)) break; // exhausted (can't happen for n <= 15 < 120)
-      clusterOrder = shuffle(byCluster.map((_, i) => i).filter(i => byCluster[i].length > 0));
+      if (clusters.every(list => list.length === 0)) break; // exhausted (can't happen for n <= 15 < 120)
+      clusterOrder = shuffle(clusters.map((_, i) => i).filter(i => clusters[i].length > 0));
       cursor = 0;
       if (clusterOrder.length === 0) break;
     }
     const ci = clusterOrder[cursor++];
-    const q = byCluster[ci].pop();
-    if (q !== undefined) picked.push(q);
+    const item = clusters[ci].pop();
+    if (item !== undefined) picked.push(item);
   }
 
-  picked.forEach(i => room.shownIndices.add(i));
-  return shuffle(picked).map(i => QUESTIONS[i]);
+  for (const item of picked) {
+    if (item.type === 'bank') room.shownIndices.add(item.index);
+    else room.shownCustomIds.add(item.id);
+  }
+  return shuffle(picked).map(item => item.type === 'bank' ? QUESTIONS[item.index] : item.text);
 }
 
 function createRoom(questionCount) {
@@ -139,6 +172,8 @@ function createRoom(questionCount) {
     joinOrder: [],
     questionCount,
     shownIndices: new Set(),
+    customQuestions: [], // {id, text, authorId, authorName}, this room's own added questions
+    shownCustomIds: new Set(),
     roundQuestions: [],
     currentRoundIndex: -1,
     phase: 'lobby', // lobby | countdown | question | result | final
@@ -319,7 +354,7 @@ wss.on('connection', (ws) => {
       const count = [5, 10, 15].includes(msg.questionCount) ? msg.questionCount : 10;
       const room = createRoom(count);
       const player = addPlayer(room, ws, msg.name, { asHost: true });
-      send(ws, { type: 'room_created', code: room.code, playerId: player.id, hostId: room.hostId, players: publicPlayers(room), questionCount: room.questionCount });
+      send(ws, { type: 'room_created', code: room.code, playerId: player.id, hostId: room.hostId, players: publicPlayers(room), questionCount: room.questionCount, customQuestions: publicCustomQuestions(room) });
       return;
     }
 
@@ -341,7 +376,7 @@ wss.on('connection', (ws) => {
         reassignHostIfNeeded(room);
         send(ws, {
           type: 'room_joined', code: room.code, playerId: existing.id, hostId: room.hostId, phase: room.phase,
-          players: publicPlayers(room), questionCount: room.questionCount,
+          players: publicPlayers(room), questionCount: room.questionCount, customQuestions: publicCustomQuestions(room),
           current: room.phase === 'question'
             ? { text: room.roundQuestions[room.currentRoundIndex], index: room.currentRoundIndex, total: room.roundQuestions.length }
             : null,
@@ -353,7 +388,7 @@ wss.on('connection', (ws) => {
       if (room.phase !== 'lobby') { room.pendingJoins.push({ ws, rawName: msg.name }); return send(ws, { type: 'room_in_progress' }); }
       if (room.players.size >= MAX_PLAYERS) return send(ws, { type: 'room_full' });
       const player = addPlayer(room, ws, msg.name);
-      send(ws, { type: 'room_joined', code: room.code, playerId: player.id, hostId: room.hostId, phase: room.phase, players: publicPlayers(room), questionCount: room.questionCount });
+      send(ws, { type: 'room_joined', code: room.code, playerId: player.id, hostId: room.hostId, phase: room.phase, players: publicPlayers(room), questionCount: room.questionCount, customQuestions: publicCustomQuestions(room) });
       broadcastLobbyState(room);
       return;
     }
@@ -366,6 +401,33 @@ wss.on('connection', (ws) => {
       if (ws.playerId !== room.hostId || room.phase !== 'lobby') return;
       if (![5, 10, 15].includes(msg.count)) return;
       room.questionCount = msg.count;
+      broadcastLobbyState(room);
+      return;
+    }
+
+    // Personalized question packs, per idea-manager brainstorm #2, 2026-08-10: any player (not
+    // just the host) can add their own "who's most likely" question, mirroring how a group
+    // already does this by hand in a chat, one inside joke at a time. Any player who's a real,
+    // currently-connected room member can add; host or the original author can remove, so one
+    // player can't grief-delete someone else's question.
+    if (msg.type === 'add_custom_question') {
+      if (room.phase !== 'lobby') return;
+      const author = room.players.get(ws.playerId);
+      if (!author) return;
+      const text = String(msg.text || '').trim().slice(0, MAX_CUSTOM_QUESTION_LEN);
+      if (!text) return send(ws, { type: 'custom_question_rejected', reason: 'empty' });
+      if (room.customQuestions.length >= MAX_CUSTOM_QUESTIONS) return send(ws, { type: 'custom_question_rejected', reason: 'limit' });
+      room.customQuestions.push({ id: genId(), text, authorId: author.id, authorName: author.displayName });
+      broadcastLobbyState(room);
+      return;
+    }
+
+    if (msg.type === 'remove_custom_question') {
+      if (room.phase !== 'lobby') return;
+      const target = room.customQuestions.find(q => q.id === msg.questionId);
+      if (!target) return;
+      if (target.authorId !== ws.playerId && room.hostId !== ws.playerId) return;
+      room.customQuestions = room.customQuestions.filter(q => q.id !== msg.questionId);
       broadcastLobbyState(room);
       return;
     }
