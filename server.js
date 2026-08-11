@@ -40,6 +40,14 @@ const ROOM_IDLE_MS = 30 * 60 * 1000; // 30 minutes, per _process/02-site-planner
 // little real margin for an actual person (phone locked, distracted for a minute) to come back
 // before being permanently removed. 3 minutes gives real headroom on top of that detection lag.
 const RECONNECT_GRACE_MS = 3 * 60 * 1000;
+// A host's own connection dropping (WiFi handoff, a momentary lag spike, phone screen locking for
+// a second) used to strip host status the instant the close event fired, with no way back: the
+// room simply moved on to whoever was still connected. Found from a real report of a host losing
+// the ability to start their own game after a laggy connection. 8s is comfortably above the
+// client's own reconnect retry cadence (script.js backs off 1s/2s/3s.. up to a 5s cap), so a
+// normal blip self-heals before this ever fires, while a genuinely gone host still hands off well
+// before RECONNECT_GRACE_MS, so the room never gets stuck waiting on them.
+const HOST_HANDOFF_DELAY_MS = 8000;
 const MAX_CUSTOM_QUESTIONS = 30; // per-room cap, in-memory only, prevents one room ballooning state
 const MAX_CUSTOM_QUESTION_LEN = 120; // roughly matches the bank's own question length
 
@@ -220,7 +228,7 @@ function addPlayer(room, ws, rawName, rawEmoji, { asHost } = {}) {
   const color = AVATAR_COLORS[room.joinOrder.length % AVATAR_COLORS.length];
   const displayName = uniqueDisplayName(room, rawName);
   const emoji = ALLOWED_EMOJI.includes(rawEmoji) ? rawEmoji : null;
-  const player = { id, ws, rawName, displayName, color, emoji, connected: true, disconnectTimer: null };
+  const player = { id, ws, rawName, displayName, color, emoji, connected: true, disconnectTimer: null, hostHandoffTimer: null };
   room.players.set(id, player);
   room.joinOrder.push(id);
   if (asHost || !room.hostId) room.hostId = id;
@@ -433,6 +441,7 @@ wss.on('connection', (ws) => {
         const existing = room.players.get(msg.playerId);
         if (!existing) return send(ws, { type: 'rejoin_failed' });
         clearTimeout(existing.disconnectTimer);
+        clearTimeout(existing.hostHandoffTimer);
         existing.ws = ws; existing.connected = true;
         ws.roomCode = room.code; ws.playerId = existing.id;
         touchRoom(room);
@@ -562,10 +571,21 @@ wss.on('connection', (ws) => {
     const player = room.players.get(ws.playerId);
     if (!player) return;
     player.connected = false;
-    // Host reassignment happens immediately, not after the reconnect grace period, per
-    // _process/02-site-planner-plan.md edge case 3: a disconnected host must not block the room.
-    if (room.hostId === ws.playerId) reassignHostIfNeeded(room);
     broadcastLobbyState(room);
+    // Host handoff is delayed (not instant, not the full RECONNECT_GRACE_MS), per a real report
+    // 2026-08-11: a host's own brief lag/reconnect blip was handing their room to someone else
+    // permanently, with no way back, before they even had a chance to reconnect. HOST_HANDOFF_DELAY_MS
+    // above explains the exact timing tradeoff. If the host is genuinely gone this still self-heals
+    // well before RECONNECT_GRACE_MS, so the room never gets stuck waiting on them either.
+    if (room.hostId === ws.playerId) {
+      clearTimeout(player.hostHandoffTimer);
+      player.hostHandoffTimer = setTimeout(() => {
+        if (!player.connected && room.hostId === ws.playerId) {
+          reassignHostIfNeeded(room);
+          broadcastLobbyState(room);
+        }
+      }, HOST_HANDOFF_DELAY_MS);
+    }
     player.disconnectTimer = setTimeout(() => {
       if (room.players.get(ws.playerId) === player && !player.connected) removePlayer(room, ws.playerId);
     }, RECONNECT_GRACE_MS);
