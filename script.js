@@ -21,8 +21,10 @@
     'מי הכי יגרום ליום משעמם להיות הכי כיף בכיתה?',
   ];
 
-  // --- צלילים (Critic finding #2): טונים מחוללים ב-Web Audio API, אפס קובץ חיצוני,
-  // באותה רוח של "אפס תלויות" שכל שאר הבנייה כבר שומרת עליה. ---
+  // --- צלילים (Critic finding #2, שודרג 2026-08-10 לבקשה מפורשת "תשפר את הסאונד"): טונים
+  // מחוללים ב-Web Audio API, אפס קובץ חיצוני, אותה רוח של "אפס תלויות". השדרוג: כל טון עובר
+  // עכשיו דרך פילטר lowpass (מרכך קצוות חדים, פחות "צפצוף זול"), ורוב הצלילים בנויים מכמה
+  // טונים בו-זמנית (יוניזון עדין עם detune, או אקורד קטן) במקום גל בודד, בשביל גוף עשיר יותר. ---
   let audioCtx = null;
   function getAudioCtx() {
     if (!state.soundEnabled) return null;
@@ -30,24 +32,51 @@
     if (audioCtx.state === 'suspended') audioCtx.resume();
     return audioCtx;
   }
-  function beep(freq, durationMs, type, gain, delayMs) {
+  function tone(freq, durationMs, { type = 'sine', gain = 0.12, delayMs = 0, detune = 0, filterFreq = 3200 } = {}) {
     const ctx = getAudioCtx();
     if (!ctx) return;
+    const start = ctx.currentTime + delayMs / 1000;
     const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = type || 'sine';
+    osc.type = type;
     osc.frequency.value = freq;
-    const start = ctx.currentTime + (delayMs || 0) / 1000;
+    if (detune) osc.detune.value = detune;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = filterFreq;
+    filter.Q.value = 0.7;
+    const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, start);
-    g.gain.linearRampToValueAtTime(gain || 0.12, start + 0.01);
+    g.gain.linearRampToValueAtTime(gain, start + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0001, start + durationMs / 1000);
-    osc.connect(g); g.connect(ctx.destination);
-    osc.start(start); osc.stop(start + durationMs / 1000 + 0.03);
+    osc.connect(filter); filter.connect(g); g.connect(ctx.destination);
+    osc.start(start); osc.stop(start + durationMs / 1000 + 0.05);
   }
-  function sfxTick() { beep(880, 90, 'square', 0.07); }
-  function sfxVote() { beep(520, 70, 'sine', 0.1); }
-  function sfxJoin() { beep(720, 80, 'sine', 0.07); }
-  function sfxReveal() { beep(660, 130, 'sine', 0.11); beep(880, 160, 'sine', 0.11, 90); beep(1100, 220, 'sine', 0.13, 180); }
+  // Thin unison (two oscillators, slightly detuned) reads fuller than one, the standard cheap
+  // trick for turning a bare synth beep into something that sounds closer to a real instrument.
+  function toneUnison(freq, durationMs, opts = {}) {
+    tone(freq, durationMs, { ...opts, detune: -6 });
+    tone(freq, durationMs, { ...opts, detune: 6, gain: (opts.gain ?? 0.12) * 0.7 });
+  }
+  function sfxTick() { toneUnison(1046, 80, { type: 'triangle', gain: 0.08, filterFreq: 2600 }); }
+  function sfxVote() { toneUnison(660, 90, { type: 'sine', gain: 0.11 }); }
+  function sfxJoin() { toneUnison(587, 90, { type: 'sine', gain: 0.08 }); toneUnison(880, 130, { type: 'sine', gain: 0.07, delayMs: 70 }); }
+  // A real ascending major-ish chord instead of three flat sine beeps, sparklier top note on
+  // triangle for a little "shine" at the end.
+  function sfxReveal() {
+    toneUnison(523, 150, { type: 'sine', gain: 0.10 });
+    toneUnison(659, 160, { type: 'sine', gain: 0.10, delayMs: 45 });
+    toneUnison(784, 200, { type: 'sine', gain: 0.10, delayMs: 95 });
+    toneUnison(1047, 280, { type: 'triangle', gain: 0.10, delayMs: 160, filterFreq: 4200 });
+  }
+  // New, per idea-manager brainstorm 2026-08-10 (reaction burst + bonus round): a short pop for
+  // tapping a reaction, and a distinct rising fanfare sting the moment the bonus badge appears,
+  // so both new features have their own sound identity instead of borrowing sfxVote/sfxReveal.
+  function sfxReactionTap() { toneUnison(1200, 70, { type: 'square', gain: 0.05, filterFreq: 3800 }); }
+  function sfxBonus() {
+    toneUnison(784, 130, { type: 'sine', gain: 0.10 });
+    toneUnison(988, 150, { type: 'sine', gain: 0.10, delayMs: 80 });
+    toneUnison(1319, 260, { type: 'triangle', gain: 0.12, delayMs: 170, filterFreq: 4500 });
+  }
 
   function joinNames(names) {
     if (names.length <= 1) return names.join('');
@@ -348,7 +377,17 @@
   function renderQuestion(msg) {
     state.myVote = null;
     state.players = msg.players;
+    // "שאלה X מתוך Y", per Researcher finding 2026-08-10: index/total were already sent by the
+    // server every question but never actually shown to the player.
+    const roundProgress = document.getElementById('round-progress');
+    if (typeof msg.index === 'number' && typeof msg.total === 'number') {
+      roundProgress.textContent = `שאלה ${msg.index + 1} מתוך ${msg.total}`;
+      roundProgress.classList.remove('hidden');
+    } else {
+      roundProgress.classList.add('hidden');
+    }
     document.getElementById('bonus-badge').classList.toggle('hidden', !msg.bonus);
+    if (msg.bonus) sfxBonus();
     document.getElementById('question-text').innerHTML = bidiSafe(msg.text);
     document.getElementById('vote-count').textContent = `0/${msg.players.length} הצביעו`;
     const grid = document.getElementById('vote-grid');
@@ -356,8 +395,11 @@
     grid.innerHTML = '';
     msg.players.forEach(p => {
       const btn = document.createElement('button');
-      btn.className = `vote-btn tile-${p.color}`;
-      btn.innerHTML = (p.emoji ? p.emoji + ' ' : '') + bidiSafe(p.name);
+      btn.className = `vote-btn tile-${p.color}` + (p.connected === false ? ' disconnected' : '');
+      // Streak flame, per idea-manager brainstorm 2026-08-10: only shown from 2 consecutive wins
+      // up, a single win isn't a "streak" yet.
+      const streakTag = p.streak >= 2 ? `<span class="streak-tag">🔥${p.streak}</span> ` : '';
+      btn.innerHTML = streakTag + (p.emoji ? p.emoji + ' ' : '') + bidiSafe(p.name) + (p.connected === false ? ' <span class="muted">(מתנתק)</span>' : '');
       btn.dataset.playerId = p.id;
       btn.addEventListener('click', () => {
         if (state.myVote) return;
@@ -372,20 +414,48 @@
     showScreen('question');
   }
 
+  // Rotating reveal phrasing, per Copywriter finding 2026-08-10: the exact same sentence
+  // repeating word-for-word 15 times in one long round felt stale. Bonus phrasing stays fixed
+  // (it only ever fires once per game, so repetition was never actually a problem there).
+  const REVEAL_SINGLE_TEMPLATES = [
+    (name) => `${name} מקבל/ת הכי הרבה קולות`,
+    (name) => `כולם הצביעו על ${name}`,
+    (name) => `${name} עם הכי הרבה קולות הערב`,
+    (name) => `ברור מי זה, ${name}!`,
+  ];
+  const REVEAL_TIE_TEMPLATES = [
+    (names) => `תיקו! ${names} מקבלים הכי הרבה קולות`,
+    (names) => `תיקו בין ${names}`,
+    (names) => `${names} עם אותה כמות קולות בדיוק`,
+  ];
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
   function renderResult(msg) {
     const nameEl = document.getElementById('result-name');
     const votesEl = document.getElementById('result-votes');
-    const pointsPhrase = msg.bonus ? `מקבלים ${msg.points} נקודות, שאלת האלופים 🏆` : 'מקבלים הכי הרבה קולות';
-    const pointsPhraseSingle = msg.bonus ? `מקבל/ת ${msg.points} נקודות, שאלת האלופים 🏆` : 'מקבל/ת הכי הרבה קולות';
+    const avatarEl = document.getElementById('result-avatar');
+    avatarEl.classList.add('hidden');
+    avatarEl.innerHTML = '';
     if (!msg.winners.length) {
       nameEl.textContent = 'אף אחד לא הצביע הפעם';
       votesEl.textContent = '';
     } else if (msg.tie) {
-      nameEl.innerHTML = 'תיקו! ' + joinNames(msg.winners.map(w => bidiSafe(w.name))) + ' ' + pointsPhrase;
+      const names = joinNames(msg.winners.map(w => bidiSafe(w.name)));
+      nameEl.innerHTML = msg.bonus ? `תיקו! ${names} מקבלים ${msg.points} נקודות כל אחד, שאלת האלופים 🏆` : pick(REVEAL_TIE_TEMPLATES)(names);
       votesEl.textContent = `${msg.winners[0].votes} קולות`;
     } else {
-      nameEl.innerHTML = bidiSafe(msg.winners[0].name) + ' ' + pointsPhraseSingle;
-      votesEl.textContent = `${msg.winners[0].votes} קולות`;
+      const w = msg.winners[0];
+      const name = bidiSafe(w.name);
+      nameEl.innerHTML = msg.bonus ? `${name} מקבל/ת ${msg.points} נקודות, שאלת האלופים 🏆` : pick(REVEAL_SINGLE_TEMPLATES)(name);
+      votesEl.textContent = `${w.votes} קולות`;
+      // Big avatar for the single-winner case, per Web Designer finding 2026-08-10: the reveal
+      // moment was pure text, missing the exact visual identity (tile color + emoji) already
+      // built everywhere else. Skipped for ties, multiple avatars don't fit the same layout.
+      if (w.color) {
+        avatarEl.className = `result-avatar tile-${w.color}`;
+        avatarEl.textContent = w.emoji || (w.name || '?')[0];
+        avatarEl.classList.remove('hidden');
+      }
     }
     announce(nameEl.textContent);
     sfxReveal();
@@ -411,6 +481,7 @@
       if (state.myReaction) return;
       state.myReaction = btn.dataset.emoji;
       document.querySelectorAll('.reaction-btn').forEach(b => { b.disabled = true; });
+      sfxReactionTap();
       send({ type: 'send_reaction', emoji: btn.dataset.emoji });
     });
   });
@@ -422,6 +493,20 @@
     card.innerHTML = highlight
       ? `הקולות שלך<br>הכי הרבה קולות קיבלת בשאלה "${bidiSafe(highlight.question)}"`
       : 'הקולות שלך<br>לא קיבלת קולות בסבב הזה, אולי בפעם הבאה';
+
+    // Screenshot-worthy header, per Critic finding 2026-08-10: the champion shown big, with
+    // their real avatar (tile color + emoji), not just a line of text.
+    const champion = msg.leaderboard[0];
+    const championEl = document.getElementById('final-share-champion');
+    if (champion && champion.wins > 0) {
+      const avatarClass = champion.color ? `tile-${champion.color}` : 'tile-blue';
+      championEl.innerHTML = `
+        <div class="final-share-avatar ${avatarClass}">${champion.emoji || (champion.name || '?')[0]}</div>
+        <div class="final-share-name">${CROWN_SVG} ${bidiSafe(champion.name)}</div>`;
+    } else {
+      championEl.innerHTML = `<div class="final-share-name">אף אחד לא ניצח הפעם</div>`;
+    }
+
     const board = document.getElementById('leaderboard');
     board.innerHTML = msg.leaderboard.map((row, i) => `
       <div class="leaderboard-row">
@@ -431,6 +516,17 @@
     const votes = document.getElementById('total-votes-table');
     votes.innerHTML = msg.totalVotesTable.map(row => `
       <div class="votes-row"><span>${row.emoji ? row.emoji + ' ' : ''}${bidiSafe(row.name)}</span><span class="n">${row.votes}</span></div>`).join('');
+
+    // "הרגע החזק של הערב", per idea-manager brainstorm 2026-08-10: built entirely from real
+    // recorded per-round vote data (personalHighlight), never a fabricated category.
+    const moment = document.getElementById('strongest-moment');
+    if (msg.strongestMoment) {
+      const m = msg.strongestMoment;
+      moment.innerHTML = `🌟 הרגע החזק של הערב: ${m.emoji ? m.emoji + ' ' : ''}${bidiSafe(m.playerName)} עם ${m.votes} קולות על "${bidiSafe(m.question)}"`;
+      moment.classList.remove('hidden');
+    } else {
+      moment.classList.add('hidden');
+    }
     showScreen('final');
   }
 
@@ -464,7 +560,7 @@
         if (msg.phase === 'lobby') {
           renderLobby({ hostId: msg.hostId, players: msg.players, questionCount: msg.questionCount, customQuestions: msg.customQuestions, canStart: msg.players.length >= 3, startBlockedReason: startBlockedReason(msg.players.length) });
         } else if (msg.phase === 'question' && msg.current) {
-          renderQuestion({ text: msg.current.text, bonus: msg.current.bonus, players: msg.players });
+          renderQuestion({ text: msg.current.text, bonus: msg.current.bonus, index: msg.current.index, total: msg.current.total, players: msg.players });
         } else {
           showScreen('waiting-next-round');
         }

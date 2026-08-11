@@ -245,9 +245,21 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
 #vote-grid.many { grid-template-columns: repeat(3, 1fr); }
 .vote-btn { min-height: 64px; font-size: 16px; }
 .vote-btn.picked { border-width: 4px; border-color: var(--ink); }
+.vote-btn.disconnected { opacity: 0.5; }
+.vote-btn .streak-tag { font-size: 13px; }
+
+/* Round progress ("שאלה X מתוך Y"), per Researcher finding 2026-08-10: index/total were already
+   sent by the server on every question but never actually shown to the player. */
+#round-progress { font-family: var(--font-numeral); }
 
 /* --- Result --- */
 #screen-result { align-items: center; justify-content: center; text-align: center; position: relative; overflow: hidden; }
+.result-avatar {
+  width: 84px; height: 84px; border-radius: 50%; margin: 0 auto var(--space-2);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-heading); font-size: 40px; border: 4px solid var(--outline);
+  animation: drop-in 400ms ease-out;
+}
 #result-name { font-family: var(--font-heading); font-size: 36px; animation: drop-in 400ms ease-out; }
 #result-votes { font-family: var(--font-numeral); font-size: 22px; color: var(--muted); }
 @keyframes drop-in { from { opacity: 0; transform: translateY(-16px) scale(0.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
@@ -275,6 +287,26 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
 .votes-row .n { font-family: var(--font-numeral); color: var(--muted); }
 .final-actions { display: flex; gap: var(--space-2); }
 .final-actions button { flex: 1; }
+
+/* Screenshot-worthy header card, per Critic finding 2026-08-10: the ending never capitalized on
+   the Spread mechanic already identified as the product's strongest asset. */
+.final-share-card {
+  background: var(--surface); border: 3px solid var(--outline); border-radius: var(--radius);
+  padding: var(--space-3); text-align: center; margin-top: var(--space-2);
+}
+.final-share-brand { font-family: var(--font-heading); font-size: 15px; color: var(--muted); margin: 0 0 var(--space-2); }
+.final-share-avatar {
+  width: 72px; height: 72px; border-radius: 50%; margin: 0 auto 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-heading); font-size: 34px; border: 4px solid var(--outline);
+}
+.final-share-name { font-family: var(--font-heading); font-size: 28px; }
+.final-share-sub { color: var(--muted); font-size: 14px; margin: 4px 0 0; }
+
+.strongest-moment {
+  background: var(--surface); border: 3px solid var(--outline); border-radius: var(--radius);
+  padding: 10px 14px; font-size: 14px; text-align: center;
+}
 
 /* --- Utility screens --- */
 #screen-error, #screen-waiting-next-round { align-items: center; justify-content: center; text-align: center; gap: var(--space-2); }

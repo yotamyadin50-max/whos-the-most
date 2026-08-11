@@ -109,6 +109,7 @@
 
   <!-- מסך 5ב: שאלה + הצבעה -->
   <section class="screen" id="screen-question" data-view="question">
+    <p class="muted center" id="round-progress"></p>
     <p class="muted center hidden" id="bonus-badge">⭐ שאלת האלופים, נקודה כפולה!</p>
     <div class="speech-bubble" id="question-text"></div>
     <p class="muted center" id="vote-count" style="margin-top:var(--space-2)"></p>
@@ -117,6 +118,7 @@
 
   <!-- מסך 5ג: תוצאת סבב -->
   <section class="screen" id="screen-result" data-view="result">
+    <div id="result-avatar" class="result-avatar hidden" aria-hidden="true"></div>
     <div id="result-name"></div>
     <div id="result-votes"></div>
     <div class="reaction-row" id="reaction-row">
@@ -131,8 +133,13 @@
   <!-- מסך 6: תוצאות סופיות -->
   <section class="screen" id="screen-final" data-view="final">
     <div class="grow stack" style="overflow-y:auto;">
-      <h1 class="center">הסבב נגמר</h1>
+      <div class="final-share-card" id="final-share-card">
+        <p class="final-share-brand">מי הכי? 🎉</p>
+        <div id="final-share-champion"></div>
+        <p class="final-share-sub">הסבב נגמר</p>
+      </div>
       <div class="speech-bubble" id="personal-highlight-card" style="font-size:17px;"></div>
+      <p class="strongest-moment hidden" id="strongest-moment"></p>
       <h2>מי צבר הכי הרבה נקודות</h2>
       <div id="leaderboard"></div>
       <h2>סה"כ קולות</h2>

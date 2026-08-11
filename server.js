@@ -77,8 +77,8 @@ function shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0;
 function send(ws, msg) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); }
 function activePlayers(room) { return [...room.players.values()].filter(p => p.connected); }
 function broadcast(room, msg) { for (const p of activePlayers(room)) send(p.ws, msg); }
-function publicPlayer(p) { return { id: p.id, name: p.displayName, color: p.color, emoji: p.emoji, connected: p.connected }; }
-function publicPlayers(room) { return [...room.players.values()].map(publicPlayer); }
+function publicPlayer(room, p) { return { id: p.id, name: p.displayName, color: p.color, emoji: p.emoji, connected: p.connected, streak: room.playerStreaks[p.id] || 0 }; }
+function publicPlayers(room) { return [...room.players.values()].map(p => publicPlayer(room, p)); }
 
 function uniqueDisplayName(room, rawName) {
   const base = (rawName || 'שחקן').trim().slice(0, 12) || 'שחקן';
@@ -190,6 +190,7 @@ function createRoom(questionCount) {
     roundWins: {}, // playerId -> number of questions won
     totalVotesReceived: {}, // playerId -> total votes across the round
     personalHighlight: {}, // playerId -> {question, votes}
+    playerStreaks: {}, // playerId -> consecutive round wins right now, per idea-manager brainstorm, 2026-08-10
     reactedThisRound: new Set(), // playerId -> already sent a reveal-screen reaction this round
     pendingJoins: [], // {ws, rawName} queued while phase !== 'lobby'
     roundTimer: null,
@@ -281,7 +282,16 @@ function resolveRound(room) {
   const bonus = room.currentRoundIndex === room.roundQuestions.length - 1;
   const points = bonus ? BONUS_POINTS : 1;
   for (const id of winnerIds) room.roundWins[id] = (room.roundWins[id] || 0) + points;
-  const winners = winnerIds.map(id => ({ id, name: room.players.get(id)?.displayName || '?', votes: max }));
+  // Consecutive-win streak, per idea-manager brainstorm 2026-08-10: winners of THIS round extend
+  // their streak, everyone else (including a tie's non-winners) resets to 0. A tie still counts
+  // as "winning" the round for streak purposes, same as it does for roundWins above.
+  for (const id of room.players.keys()) {
+    room.playerStreaks[id] = winnerIds.includes(id) ? (room.playerStreaks[id] || 0) + 1 : 0;
+  }
+  const winners = winnerIds.map(id => {
+    const p = room.players.get(id);
+    return { id, name: p?.displayName || '?', votes: max, color: p?.color, emoji: p?.emoji };
+  });
   broadcast(room, { type: 'result', winners, tie: winners.length > 1, votedCount: room.votes.size, bonus, points });
   touchRoom(room);
   clearTimeout(room.roundTimer);
@@ -296,14 +306,24 @@ function maybeEarlyResolve(room) {
 
 function buildFinalPayload(room) {
   const leaderboard = [...room.players.keys()]
-    .map(id => ({ id, name: room.players.get(id).displayName, emoji: room.players.get(id).emoji, wins: room.roundWins[id] || 0 }))
+    .map(id => ({ id, name: room.players.get(id).displayName, emoji: room.players.get(id).emoji, color: room.players.get(id).color, wins: room.roundWins[id] || 0 }))
     .sort((a, b) => b.wins - a.wins);
   const totalVotesTable = [...room.players.keys()]
     .map(id => ({ id, name: room.players.get(id).displayName, emoji: room.players.get(id).emoji, votes: room.totalVotesReceived[id] || 0 }))
     .sort((a, b) => b.votes - a.votes);
   const personalHighlights = {};
   for (const id of room.players.keys()) personalHighlights[id] = room.personalHighlight[id] || null;
-  return { leaderboard, totalVotesTable, personalHighlights };
+  // "הרגע החזק של הערב", per idea-manager brainstorm 2026-08-10: the single highest vote count
+  // any one player got on any one question, all season. Built entirely from real recorded data
+  // (personalHighlight already tracks each player's own best round), never a fabricated category.
+  let strongestMoment = null;
+  for (const [id, h] of Object.entries(room.personalHighlight)) {
+    if (h && (!strongestMoment || h.votes > strongestMoment.votes)) {
+      const p = room.players.get(id);
+      strongestMoment = { playerId: id, playerName: p?.displayName || '?', emoji: p?.emoji, question: h.question, votes: h.votes };
+    }
+  }
+  return { leaderboard, totalVotesTable, personalHighlights, strongestMoment };
 }
 
 function endGame(room) {
@@ -331,6 +351,7 @@ function resetRoundState(room) {
   room.roundWins = {};
   room.totalVotesReceived = {};
   room.personalHighlight = {};
+  room.playerStreaks = {};
 }
 
 // Node treats an unhandled 'error' event on any EventEmitter (the WebSocketServer, the HTTP
