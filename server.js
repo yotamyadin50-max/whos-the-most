@@ -32,7 +32,14 @@ const VOTE_SECONDS = 15;
 const COUNTDOWN_SECONDS = 3;
 const RESULT_DISPLAY_MS = 4000;
 const ROOM_IDLE_MS = 30 * 60 * 1000; // 30 minutes, per _process/02-site-planner-plan.md edge case 4
-const RECONNECT_GRACE_MS = 60 * 1000; // per edge case 5
+// Bumped from 60s to 3 minutes, 2026-08-10, a real bug hunt against production found a
+// WebSocket connection can silently die mid-game (confirmed: a player stopped receiving any
+// broadcast for a full round before the heartbeat below ever noticed). The heartbeat's own
+// worst-case detection latency is up to 2 full ping cycles (see HEARTBEAT_INTERVAL_MS below) before
+// the close event even fires and this grace window starts counting, so the OLD 60s left very
+// little real margin for an actual person (phone locked, distracted for a minute) to come back
+// before being permanently removed. 3 minutes gives real headroom on top of that detection lag.
+const RECONNECT_GRACE_MS = 3 * 60 * 1000;
 const MAX_CUSTOM_QUESTIONS = 30; // per-room cap, in-memory only, prevents one room ballooning state
 const MAX_CUSTOM_QUESTION_LEN = 120; // roughly matches the bank's own question length
 
@@ -385,6 +392,14 @@ wss.on('error', (err) => console.error('[wss error]', err.message));
 // Standard `ws` idiom: ping every client periodically; a client whose pong never comes back
 // (genuinely dead, not just idle) gets terminated so its slot/room state can clean up properly
 // via the existing disconnect handling below, instead of lingering as a phantom connection.
+// Lowered from 25s to 15s, 2026-08-10: worst-case detection of a genuinely dead connection is up
+// to 2 full cycles (the ping that goes unanswered, then the following tick that notices and
+// terminates), so 25s meant up to 50s of silence before RECONNECT_GRACE_MS above even started
+// counting, real margin lost to a bug hunt against production before a real person even has a
+// chance to notice and reconnect. 15s still sits comfortably under any reasonable proxy idle
+// timeout (this mechanism exists specifically to beat that, see the note above), just tightens
+// the detection side of the same problem RECONNECT_GRACE_MS's increase addresses from the other side.
+const HEARTBEAT_INTERVAL_MS = 15000;
 function heartbeat() { this.isAlive = true; }
 const heartbeatInterval = setInterval(() => {
   wss.clients.forEach((ws) => {
@@ -392,7 +407,7 @@ const heartbeatInterval = setInterval(() => {
     ws.isAlive = false;
     ws.ping();
   });
-}, 25000);
+}, HEARTBEAT_INTERVAL_MS);
 wss.on('close', () => clearInterval(heartbeatInterval));
 
 wss.on('connection', (ws) => {
