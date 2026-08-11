@@ -83,6 +83,7 @@
     questionCount: 10,
     customQuestions: [],
     emoji: null,
+    myReaction: null,
     soundEnabled: localStorage.getItem('whosmost_sound') !== 'off',
     intentionalClose: false,
   };
@@ -388,8 +389,31 @@
     }
     announce(nameEl.textContent);
     sfxReveal();
+    state.myReaction = null;
+    document.querySelectorAll('.reaction-btn').forEach(b => { b.disabled = false; });
+    document.getElementById('reaction-burst-layer').innerHTML = '';
     showScreen('result');
   }
+
+  // ---------- Reveal-screen reactions (idea-manager brainstorm, "raise the level, a bit
+  // funnier", 2026-08-10): purely visual, no scoring effect, one per player per round. ----------
+  function spawnReactionBurst(emoji) {
+    const layer = document.getElementById('reaction-burst-layer');
+    const span = document.createElement('span');
+    span.className = 'reaction-burst';
+    span.textContent = emoji;
+    span.style.insetInlineStart = `${10 + Math.random() * 70}%`;
+    layer.appendChild(span);
+    span.addEventListener('animationend', () => span.remove());
+  }
+  document.querySelectorAll('.reaction-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (state.myReaction) return;
+      state.myReaction = btn.dataset.emoji;
+      document.querySelectorAll('.reaction-btn').forEach(b => { b.disabled = true; });
+      send({ type: 'send_reaction', emoji: btn.dataset.emoji });
+    });
+  });
 
   // ---------- Final results ----------
   function renderFinal(msg) {
@@ -492,6 +516,10 @@
 
       case 'result':
         renderResult(msg);
+        break;
+
+      case 'reaction':
+        spawnReactionBurst(msg.emoji);
         break;
 
       case 'game_over':

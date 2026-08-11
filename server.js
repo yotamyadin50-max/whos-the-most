@@ -34,6 +34,10 @@ const AVATAR_COLORS = ['blue', 'pink', 'green', 'orange', 'yellow', 'cyan'];
 // client's picker renders, per idea-manager brainstorm #5, 2026-08-10.
 const ALLOWED_EMOJI = ['😂', '🔥', '😎', '🥳', '🎉', '👑', '💥', '🦊', '🍕', '⚡'];
 const BONUS_POINTS = 2; // last question of the round, "שאלת האלופים", per idea-manager brainstorm #3
+// Reveal-screen reactions, deliberately a distinct set from ALLOWED_EMOJI (personal avatars),
+// so the two never look interchangeable in the UI. Purely a "juice" layer, no scoring impact,
+// added per "תחשוב על זה ותשפר קצת" (raise the level, a bit funnier), 2026-08-10.
+const REACTION_EMOJI = ['🤣', '😱', '🔥', '👏'];
 
 const server = http.createServer((req, res) => {
   let filePath = req.url.split('?')[0];
@@ -186,6 +190,7 @@ function createRoom(questionCount) {
     roundWins: {}, // playerId -> number of questions won
     totalVotesReceived: {}, // playerId -> total votes across the round
     personalHighlight: {}, // playerId -> {question, votes}
+    reactedThisRound: new Set(), // playerId -> already sent a reveal-screen reaction this round
     pendingJoins: [], // {ws, rawName} queued while phase !== 'lobby'
     roundTimer: null,
     lastActivity: Date.now(),
@@ -260,6 +265,7 @@ function resolveRound(room) {
   if (room.phase !== 'question') return;
   clearTimeout(room.roundTimer);
   room.phase = 'result';
+  room.reactedThisRound.clear();
   const tally = {};
   for (const targetId of room.votes.values()) tally[targetId] = (tally[targetId] || 0) + 1;
   for (const [targetId, count] of Object.entries(tally)) {
@@ -458,6 +464,19 @@ wss.on('connection', (ws) => {
       resetRoundState(room);
       room.roundQuestions = pickRoundQuestions(room, room.questionCount);
       startCountdown(room);
+      return;
+    }
+
+    // Reveal-screen reactions: purely a "juice" layer, no scoring effect, one per player per
+    // round so it can't be spammed. Every player (including whoever just won) can react.
+    if (msg.type === 'send_reaction') {
+      if (room.phase !== 'result') return;
+      if (room.reactedThisRound.has(ws.playerId)) return;
+      if (!REACTION_EMOJI.includes(msg.emoji)) return;
+      const player = room.players.get(ws.playerId);
+      if (!player) return;
+      room.reactedThisRound.add(ws.playerId);
+      broadcast(room, { type: 'reaction', emoji: msg.emoji, playerName: player.displayName });
       return;
     }
 

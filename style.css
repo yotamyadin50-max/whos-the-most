@@ -247,10 +247,26 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
 .vote-btn.picked { border-width: 4px; border-color: var(--ink); }
 
 /* --- Result --- */
-#screen-result { align-items: center; justify-content: center; text-align: center; }
+#screen-result { align-items: center; justify-content: center; text-align: center; position: relative; overflow: hidden; }
 #result-name { font-family: var(--font-heading); font-size: 36px; animation: drop-in 400ms ease-out; }
 #result-votes { font-family: var(--font-numeral); font-size: 22px; color: var(--muted); }
 @keyframes drop-in { from { opacity: 0; transform: translateY(-16px) scale(0.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+/* Reveal-screen reactions: a quick "juice" layer, purely visual, no scoring effect. */
+.reaction-row { display: flex; gap: 10px; margin-top: var(--space-3); }
+.reaction-btn {
+  width: 48px; height: 48px; min-height: 48px; padding: 0; font-size: 24px; line-height: 1;
+  border-radius: 50%; background: var(--surface); border: 3px solid var(--outline);
+  display: flex; align-items: center; justify-content: center;
+}
+.reaction-btn:disabled { opacity: 0.4; transform: none; }
+#reaction-burst-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.reaction-burst { position: absolute; bottom: 90px; font-size: 30px; animation: reaction-float 1600ms ease-out forwards; }
+@keyframes reaction-float {
+  0% { opacity: 0; transform: translateY(0) scale(0.6); }
+  15% { opacity: 1; transform: translateY(-20px) scale(1.15); }
+  100% { opacity: 0; transform: translateY(-160px) scale(1); }
+}
 
 /* --- Final results --- */
 .crown { font-size: 40px; }
