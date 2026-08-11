@@ -1,7 +1,7 @@
 // Who's The Most, client. Vanilla JS, no framework, no build step.
 (() => {
   const TILE_COLORS = ['blue', 'pink', 'green', 'orange', 'yellow', 'cyan'];
-  const VOTE_SECONDS = 15; // must stay in sync with server.js's own VOTE_SECONDS constant
+  const DEFAULT_VOTE_SECONDS = 15; // fallback only, the server sends the real value on every 'question' (Builder finding 2026-08-10, closes a constant-drift risk instead of just documenting it)
 
   // Hand-drawn SVG crown, per _process/03-web-designer-visual-spec.md's iconography rule
   // (no stock emoji, no icon library), same treatment SparkRoom already validated.
@@ -126,7 +126,15 @@
   const SCREENS_WITH_LEAVE_BUTTON = new Set(['lobby', 'countdown', 'question', 'result', 'waiting-next-round']);
   function showScreen(name) {
     document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.dataset.view === name));
-    document.getElementById('btn-leave-game').classList.toggle('hidden', !SCREENS_WITH_LEAVE_BUTTON.has(name));
+    const leaveBtn = document.getElementById('btn-leave-game');
+    leaveBtn.classList.toggle('hidden', !SCREENS_WITH_LEAVE_BUTTON.has(name));
+    // A screen change mid-"are you sure?" (the round auto-advancing while the player was
+    // deciding) shouldn't leave the button stuck showing "?" on whatever screen comes next.
+    if (leaveBtn.classList.contains('confirming')) {
+      leaveBtn.classList.remove('confirming');
+      leaveBtn.textContent = '✕';
+      leaveBtn.setAttribute('aria-label', 'עזוב משחק');
+    }
   }
   function announce(text) { document.getElementById('live-region').textContent = text; }
   function toast(text) {
@@ -323,12 +331,37 @@
   document.getElementById('btn-add-custom-q').addEventListener('click', submitCustomQuestion);
   customQInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') submitCustomQuestion(); });
 
+  // Reuse across game nights, per idea-manager finding 2026-08-10: custom questions used to live
+  // only on one room, a family had to retype their own inside jokes every time they opened a
+  // fresh room. localStorage is the right tool here (no server persistence, stays zero-infra),
+  // and only ever gets overwritten with a NON-empty list, so starting a fresh empty room never
+  // wipes out a previously saved set before the player gets a chance to reuse it.
+  function saveCustomQuestionsForReuse(questions) {
+    if (!questions.length) return;
+    try { localStorage.setItem('whosmost_custom_questions', JSON.stringify(questions.map(q => q.text))); } catch { /* storage unavailable, just skip saving */ }
+  }
+  function loadSavedCustomQuestions() {
+    try { return JSON.parse(localStorage.getItem('whosmost_custom_questions') || '[]'); } catch { return []; }
+  }
+  function renderReuseButton() {
+    const btn = document.getElementById('btn-reuse-custom-q');
+    const saved = loadSavedCustomQuestions();
+    if (state.customQuestions.length > 0 || saved.length === 0) { btn.classList.add('hidden'); return; }
+    btn.textContent = `השתמשו בשאלות מהפעם הקודמת (${saved.length})`;
+    btn.classList.remove('hidden');
+  }
+  document.getElementById('btn-reuse-custom-q').addEventListener('click', () => {
+    for (const text of loadSavedCustomQuestions()) send({ type: 'add_custom_question', text });
+  });
+
   function renderCustomQuestions() {
     // Critic finding 2026-08-10: the lobby was getting long, this section is the one genuinely
     // optional part, collapsed by default (index.html <details>). Only ever force it OPEN when
     // there's something worth seeing, never force it closed, that would fight a player who
     // deliberately opened it themselves to add a question.
     if (state.customQuestions.length > 0) document.getElementById('custom-q-details').open = true;
+    saveCustomQuestionsForReuse(state.customQuestions);
+    renderReuseButton();
     const list = document.getElementById('custom-q-list');
     list.innerHTML = '';
     state.customQuestions.forEach(q => {
@@ -411,9 +444,12 @@
     state.myVote = null;
     state.players = msg.players;
     // "שאלה X מתוך Y", per Researcher finding 2026-08-10: index/total were already sent by the
-    // server every question but never actually shown to the player.
+    // server every question but never actually shown to the player. Critic finding 2026-08-10:
+    // the question screen (seen up to 15x a game) was getting stacked with too many elements, so
+    // on the bonus question the badge REPLACES the progress line instead of stacking alongside
+    // it, "שאלת האלופים" already implies "this is the last one," the count would be redundant.
     const roundProgress = document.getElementById('round-progress');
-    if (typeof msg.index === 'number' && typeof msg.total === 'number') {
+    if (!msg.bonus && typeof msg.index === 'number' && typeof msg.total === 'number') {
       roundProgress.textContent = `שאלה ${msg.index + 1} מתוך ${msg.total}`;
       roundProgress.classList.remove('hidden');
     } else {
@@ -427,14 +463,18 @@
     // transition trick: snap back to full with no transition, force a reflow, then re-enable the
     // transition and set the end state so the browser actually animates it.
     const fill = document.getElementById('vote-timer-fill');
+    const voteSeconds = typeof msg.voteSeconds === 'number' ? msg.voteSeconds : DEFAULT_VOTE_SECONDS;
     fill.style.transition = 'none';
     fill.style.width = '100%';
     void fill.offsetWidth;
-    fill.style.transition = `width ${VOTE_SECONDS}s linear`;
+    fill.style.transition = `width ${voteSeconds}s linear`;
     fill.style.width = '0%';
     document.getElementById('vote-count').textContent = `0/${msg.players.length} הצביעו`;
     const grid = document.getElementById('vote-grid');
-    grid.className = msg.players.length > 8 ? 'many' : '';
+    // Researcher finding 2026-08-10: the grid switched to 3 columns above 8 players but never
+    // scaled further, so a real large group (up to MAX_PLAYERS=20 server-side) meant a lot of
+    // scrolling before seeing every option. One more breakpoint at 14+.
+    grid.className = msg.players.length > 14 ? 'lots' : msg.players.length > 8 ? 'many' : '';
     grid.innerHTML = '';
     msg.players.forEach(p => {
       const btn = document.createElement('button');
@@ -584,7 +624,28 @@
     location.reload();
   }
   document.getElementById('btn-exit').addEventListener('click', leaveGame);
-  document.getElementById('btn-leave-game').addEventListener('click', leaveGame);
+  // Site Planner finding 2026-08-10: this is a small fixed-corner button, easy to hit by
+  // accident reaching for something else (a reaction button, mid-excitement). Tap-twice instead
+  // of a native confirm() dialog, which would break the app's own visual language: first tap
+  // switches to a "בטוח?" state for a couple of seconds, second tap within that window actually
+  // leaves, otherwise it quietly reverts.
+  const btnLeaveGame = document.getElementById('btn-leave-game');
+  let leaveConfirmTimer = null;
+  btnLeaveGame.addEventListener('click', () => {
+    if (btnLeaveGame.classList.contains('confirming')) {
+      clearTimeout(leaveConfirmTimer);
+      leaveGame();
+      return;
+    }
+    btnLeaveGame.classList.add('confirming');
+    btnLeaveGame.textContent = '?';
+    btnLeaveGame.setAttribute('aria-label', 'לחצו שוב כדי לעזוב, בטוחים?');
+    leaveConfirmTimer = setTimeout(() => {
+      btnLeaveGame.classList.remove('confirming');
+      btnLeaveGame.textContent = '✕';
+      btnLeaveGame.setAttribute('aria-label', 'עזוב משחק');
+    }, 2500);
+  });
   document.getElementById('btn-error-home').addEventListener('click', () => {
     clearSession();
     history.replaceState(null, '', '/');
@@ -608,7 +669,7 @@
         if (msg.phase === 'lobby') {
           renderLobby({ hostId: msg.hostId, players: msg.players, questionCount: msg.questionCount, customQuestions: msg.customQuestions, canStart: msg.players.length >= 3, startBlockedReason: startBlockedReason(msg.players.length) });
         } else if (msg.phase === 'question' && msg.current) {
-          renderQuestion({ text: msg.current.text, bonus: msg.current.bonus, index: msg.current.index, total: msg.current.total, players: msg.players });
+          renderQuestion({ text: msg.current.text, bonus: msg.current.bonus, index: msg.current.index, total: msg.current.total, voteSeconds: msg.current.voteSeconds, players: msg.players });
         } else {
           showScreen('waiting-next-round');
         }

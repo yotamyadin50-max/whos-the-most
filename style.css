@@ -74,6 +74,8 @@ p { margin: 0; }
   border-radius: 50%; background: var(--surface); border: 3px solid var(--outline); color: var(--muted);
   display: flex; align-items: center; justify-content: center;
 }
+/* Tap-twice confirm state, per Site Planner finding 2026-08-10. */
+#btn-leave-game.confirming { background: var(--error); border-color: var(--error); color: var(--ink); font-weight: 700; }
 
 #connection-banner {
   position: fixed; top: 0; inset-inline: 0; z-index: 20;
@@ -148,10 +150,15 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
 #room-code-input { direction: ltr; text-align: center; letter-spacing: 4px; font-family: var(--font-numeral); font-weight: 700; text-transform: uppercase; }
 
 /* --- Home screen --- */
-#screen-home .headline { font-size: 44px; margin-top: var(--space-6); }
-#screen-home .subhead { font-size: 17px; color: var(--muted); }
-#screen-home .speech-bubble-decor { align-self: center; margin: var(--space-4) 0; opacity: 0.9; }
+/* Web Designer finding 2026-08-10: every other screen picked up real motion over several
+   rounds (sounds, reveals, badges, avatars), the home screen, the very first thing anyone sees,
+   never did. Reuses the same drop-in language already established elsewhere, not a new effect. */
+#screen-home .headline { font-size: 44px; margin-top: var(--space-6); animation: drop-in 500ms ease-out; }
+#screen-home .subhead { font-size: 17px; color: var(--muted); animation: drop-in 500ms ease-out 80ms both; }
+#screen-home .speech-bubble-decor { align-self: center; margin: var(--space-4) 0; opacity: 0.9; animation: drop-in 500ms ease-out 160ms both, home-bubble-float 3200ms ease-in-out 700ms infinite; }
 #screen-home .trust-line { margin-top: auto; padding-top: var(--space-4); }
+@keyframes home-bubble-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { #screen-home .speech-bubble-decor { animation: none; } }
 
 /* --- Name entry --- */
 .avatar-preview {
@@ -266,6 +273,10 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
 @media (prefers-reduced-motion: reduce) { .vote-timer-fill { transition: none !important; } }
 #vote-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-2); margin-top: auto; margin-bottom: var(--space-2); }
 #vote-grid.many { grid-template-columns: repeat(3, 1fr); }
+/* Researcher finding 2026-08-10: one more breakpoint so a real large group (up to
+   MAX_PLAYERS=20) isn't stuck with excessive scrolling before every option is visible. */
+#vote-grid.lots { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+#vote-grid.lots .vote-btn { min-height: 48px; font-size: 13px; padding: 6px 4px; }
 .vote-btn { min-height: 64px; font-size: 16px; position: relative; }
 /* Web Designer finding 2026-08-10: the picked state was just a thicker border, no icon or
    motion, the weakest moment in an otherwise "juicy" interaction chain. */

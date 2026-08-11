@@ -85,6 +85,7 @@
     </div>
     <details class="custom-q-details" id="custom-q-details" style="margin-top:var(--space-3)">
       <summary class="muted">הוסיפו שאלה אישית לחדר (אופציונלי)</summary>
+      <button class="btn-secondary btn-block hidden" id="btn-reuse-custom-q" type="button"></button>
       <div class="custom-q-add-row">
         <input type="text" id="custom-q-input" maxlength="120" placeholder="מי הכי... (השאלה שלכם)">
         <button class="btn-secondary" id="btn-add-custom-q">הוסף</button>
@@ -99,7 +100,7 @@
     <div class="sticky-bottom">
       <button class="btn-primary btn-block" id="btn-start-game" disabled>התחל משחק</button>
       <p class="muted center" id="start-blocked-reason"></p>
-      <p class="muted center hidden" id="waiting-for-host">מחכים שהמארח יתחיל</p>
+      <p class="muted center hidden" id="waiting-for-host">מחכים שהמארח/ת יתחיל/תתחיל</p>
     </div>
   </section>
 

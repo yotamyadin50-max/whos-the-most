@@ -3,6 +3,14 @@
 // live cross-phone room sync is the product's core mechanic and cannot exist as pure static HTML/CSS/JS.
 // Same pattern already validated in O-output/07-sparkroom: one dependency (ws), no framework, no build step,
 // no external account/service, room state held in memory only.
+//
+// WS protocol surface, per Gatekeeper finding 2026-08-10 (grown from ~6 to 11 message types
+// across a few rounds of additions, worth a living inventory rather than re-discovering it by
+// grepping every time). Client -> server: create_room, join_room, rejoin, set_question_count,
+// add_custom_question, remove_custom_question, start_game, send_reaction, vote, continue_playing,
+// leave_room. Server -> client (not exhaustive, the reply/broadcast side of the above plus
+// room_state/question/countdown/result/game_over/reaction/server_restarting/*_rejected/*_full/
+// *_not_found). Keep this line updated when a message type is added or removed.
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -254,9 +262,13 @@ function startQuestion(room) {
   room.votes.clear();
   const text = room.roundQuestions[room.currentRoundIndex];
   const bonus = room.currentRoundIndex === room.roundQuestions.length - 1; // "שאלת האלופים", idea-manager brainstorm #3
+  // voteSeconds sent explicitly, per Builder finding 2026-08-10: the client used to hardcode its
+  // own copy of this to drive the timer-bar animation, synced only by a comment, a real drift
+  // risk if one side ever changed without the other. The server is now the single source of
+  // truth, the client reads this value instead of keeping its own constant.
   broadcast(room, {
     type: 'question', text, index: room.currentRoundIndex, total: room.roundQuestions.length, bonus,
-    players: publicPlayers(room),
+    voteSeconds: VOTE_SECONDS, players: publicPlayers(room),
   });
   clearTimeout(room.roundTimer);
   room.roundTimer = setTimeout(() => resolveRound(room), VOTE_SECONDS * 1000);
@@ -418,7 +430,7 @@ wss.on('connection', (ws) => {
           type: 'room_joined', code: room.code, playerId: existing.id, hostId: room.hostId, phase: room.phase,
           players: publicPlayers(room), questionCount: room.questionCount, customQuestions: publicCustomQuestions(room),
           current: room.phase === 'question'
-            ? { text: room.roundQuestions[room.currentRoundIndex], index: room.currentRoundIndex, total: room.roundQuestions.length, bonus: room.currentRoundIndex === room.roundQuestions.length - 1 }
+            ? { text: room.roundQuestions[room.currentRoundIndex], index: room.currentRoundIndex, total: room.roundQuestions.length, bonus: room.currentRoundIndex === room.roundQuestions.length - 1, voteSeconds: VOTE_SECONDS }
             : null,
         });
         // A rejoin during 'question' gets its state via `current` above, and 'countdown'/'result'
