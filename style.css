@@ -66,6 +66,15 @@ p { margin: 0; }
 }
 #btn-sound-toggle svg { width: 18px; height: 18px; }
 
+/* Site Planner finding 2026-08-10: no way to leave mid-game, only from the final screen.
+   Mirrors #btn-sound-toggle's fixed-corner treatment, opposite side. */
+#btn-leave-game {
+  position: fixed; top: var(--space-2); inset-inline-start: var(--space-2); z-index: 10;
+  width: 40px; height: 40px; min-height: 40px; padding: 0; font-size: 16px; line-height: 1;
+  border-radius: 50%; background: var(--surface); border: 3px solid var(--outline); color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+}
+
 #connection-banner {
   position: fixed; top: 0; inset-inline: 0; z-index: 20;
   background: var(--error); color: var(--ink);
@@ -194,6 +203,15 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
 @keyframes chip-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 #players-list { display: flex; flex-wrap: wrap; gap: 8px; }
 
+/* Critic finding 2026-08-10: the lobby was getting long with every screen's worth of content
+   stacked, this is the one genuinely optional section, collapsed by default (script.js forces
+   it open only when the room already has custom questions worth seeing). */
+.custom-q-details summary { cursor: pointer; list-style: none; }
+.custom-q-details summary::-webkit-details-marker { display: none; }
+.custom-q-details summary::after { content: ' ▾'; }
+.custom-q-details[open] summary::after { content: ' ▴'; }
+.custom-q-details > *:not(summary) { margin-top: var(--space-2); }
+
 /* Personalized question packs: any player can add their own "who's most likely" question,
    it rides the same topic-cluster round-robin as the bank server-side (server.js). */
 .custom-q-add-row { display: flex; gap: 8px; }
@@ -241,10 +259,22 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
   border-block-end: 3px solid var(--outline);
 }
 #vote-count { text-align: center; }
+/* Researcher finding 2026-08-10: no visible countdown during the actual 15s vote window (only
+   the pre-question 3-2-1). Restarted fresh each question in script.js via the reflow trick. */
+.vote-timer-track { height: 6px; background: var(--surface); border-radius: 999px; overflow: hidden; margin-top: var(--space-2); }
+.vote-timer-fill { height: 100%; width: 100%; background: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .vote-timer-fill { transition: none !important; } }
 #vote-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-2); margin-top: auto; margin-bottom: var(--space-2); }
 #vote-grid.many { grid-template-columns: repeat(3, 1fr); }
-.vote-btn { min-height: 64px; font-size: 16px; }
-.vote-btn.picked { border-width: 4px; border-color: var(--ink); }
+.vote-btn { min-height: 64px; font-size: 16px; position: relative; }
+/* Web Designer finding 2026-08-10: the picked state was just a thicker border, no icon or
+   motion, the weakest moment in an otherwise "juicy" interaction chain. */
+.vote-btn.picked { border-width: 4px; border-color: var(--ink); animation: vote-pick-bump 200ms ease-out; }
+.vote-btn.picked::after {
+  content: '✓'; position: absolute; top: 6px; inset-inline-end: 8px;
+  font-size: 16px; font-weight: 700; line-height: 1;
+}
+@keyframes vote-pick-bump { 0% { transform: scale(1); } 45% { transform: scale(1.06); } 100% { transform: scale(1); } }
 .vote-btn.disconnected { opacity: 0.5; }
 .vote-btn .streak-tag { font-size: 13px; }
 

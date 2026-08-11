@@ -501,8 +501,12 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // Vote can be changed freely until the round actually resolves, per idea-manager finding
+    // 2026-08-10: the old lock-on-first-tap behavior meant a misclick on a crowded phone screen
+    // had no way back. room.votes is a Map keyed by voter, so re-sending just overwrites the
+    // same slot, votes.size (used for early-resolve) is unaffected by a change, only by a new voter.
     if (msg.type === 'vote') {
-      if (room.phase !== 'question' || room.votes.has(ws.playerId)) return;
+      if (room.phase !== 'question') return;
       if (!room.players.has(msg.targetPlayerId)) return;
       room.votes.set(ws.playerId, msg.targetPlayerId);
       maybeEarlyResolve(room);
@@ -551,3 +555,14 @@ setInterval(() => {
 
 // Explicit 0.0.0.0 bind, per Render's own hosting requirement, not just Node's default behavior.
 server.listen(PORT, '0.0.0.0', () => console.log(`Who's The Most running on port ${PORT}`));
+
+// Builder finding 2026-08-10: room state is in-memory only, so every deploy silently drops every
+// game in progress with zero warning, the player just sees the connection die. This can't
+// actually SAVE the game (that needs real persistence, a genuinely bigger change, out of scope
+// tonight), but Render sends SIGTERM with a real grace period before the hard kill, long enough
+// to warn everyone first so "the app broke" reads as "the app is updating" instead.
+process.on('SIGTERM', () => {
+  console.log('[shutdown] SIGTERM received, warning connected clients before exit');
+  for (const room of rooms.values()) broadcast(room, { type: 'server_restarting' });
+  setTimeout(() => process.exit(0), 300);
+});

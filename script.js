@@ -1,6 +1,7 @@
 // Who's The Most, client. Vanilla JS, no framework, no build step.
 (() => {
   const TILE_COLORS = ['blue', 'pink', 'green', 'orange', 'yellow', 'cyan'];
+  const VOTE_SECONDS = 15; // must stay in sync with server.js's own VOTE_SECONDS constant
 
   // Hand-drawn SVG crown, per _process/03-web-designer-visual-spec.md's iconography rule
   // (no stock emoji, no icon library), same treatment SparkRoom already validated.
@@ -115,10 +116,17 @@
     myReaction: null,
     soundEnabled: localStorage.getItem('whosmost_sound') !== 'off',
     intentionalClose: false,
+    serverRestarting: false,
   };
 
+  // Site Planner finding 2026-08-10: the only way to leave was closing the tab, no in-game exit
+  // path, `btn-exit` only ever existed on the final screen. Shown on every screen where a player
+  // is actually inside a live room (not home/name/error, which have nothing to leave, and not
+  // final, which already has its own leave button).
+  const SCREENS_WITH_LEAVE_BUTTON = new Set(['lobby', 'countdown', 'question', 'result', 'waiting-next-round']);
   function showScreen(name) {
     document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.dataset.view === name));
+    document.getElementById('btn-leave-game').classList.toggle('hidden', !SCREENS_WITH_LEAVE_BUTTON.has(name));
   }
   function announce(text) { document.getElementById('live-region').textContent = text; }
   function toast(text) {
@@ -148,6 +156,7 @@
     state.ws.addEventListener('open', () => {
       const isReconnect = reconnectAttempt > 0;
       reconnectAttempt = 0;
+      state.serverRestarting = false;
       hideBanner();
       if (isReconnect && state.roomCode && state.playerId) {
         send({ type: 'rejoin', code: state.roomCode, playerId: state.playerId });
@@ -159,7 +168,11 @@
     state.ws.addEventListener('close', () => {
       if (state.intentionalClose) return;
       reconnectAttempt++;
-      showBanner('החיבור נותק, מתחבר מחדש...');
+      // Builder finding 2026-08-10: keep the more accurate "server updating" message through the
+      // actual reconnect attempts too, not just the initial 300ms warning, otherwise this gets
+      // immediately overwritten by the generic "connection lost" text the moment the socket
+      // actually drops, which is exactly when the reassurance matters most.
+      showBanner(state.serverRestarting ? 'השרת מתעדכן, מתחברים מחדש...' : 'החיבור נותק, מתחבר מחדש...');
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(openSocket, Math.min(1000 * reconnectAttempt, 5000));
     });
@@ -262,9 +275,24 @@
   renderSoundIcon();
 
   // ---------- Lobby ----------
+  // The server-confirmed display name (not the raw typed input, which can get a "2" suffix from
+  // uniqueDisplayName if it collides with someone already in the room), so the invite says
+  // exactly the name everyone else in the room actually sees.
+  function myDisplayName() {
+    const me = state.players.find(p => p.id === state.playerId);
+    return me ? me.name : '';
+  }
+  // Personalized per Copywriter/marketing-manager finding 2026-08-10: matches the funnier voice
+  // already established in the question bank, and opens with the real sender's name per the
+  // broadcast-copy discipline (a personal-feeling opener outperforms a generic "let's play").
   function whatsappShareText(code) {
     const url = `${location.origin}/room/${code}`;
-    return `בואו נשחק "מי הכי", מצביעים אחד על השני, זה קצר וזה כיף. נכנסים כאן: ${url}`;
+    const name = myDisplayName();
+    // Plain text, not HTML: goes straight through encodeURIComponent into a wa.me link, so no
+    // bidiSafe() here, that helper's <bdi> tags are for innerHTML rendering and would show up
+    // as literal text in the actual WhatsApp message.
+    const invite = name ? `${name} מזמין/ה אתכם` : 'מוזמנים';
+    return `${invite} להצטרף לחדר במשחק "מי הכי" 🎉 מצביעים מי הכי עושה מה, קצר וכיפי. נכנסים כאן: ${url}`;
   }
   document.getElementById('btn-share-whatsapp').addEventListener('click', () => {
     window.open(`https://wa.me/?text=${encodeURIComponent(whatsappShareText(state.roomCode))}`, '_blank');
@@ -296,6 +324,11 @@
   customQInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') submitCustomQuestion(); });
 
   function renderCustomQuestions() {
+    // Critic finding 2026-08-10: the lobby was getting long, this section is the one genuinely
+    // optional part, collapsed by default (index.html <details>). Only ever force it OPEN when
+    // there's something worth seeing, never force it closed, that would fight a player who
+    // deliberately opened it themselves to add a question.
+    if (state.customQuestions.length > 0) document.getElementById('custom-q-details').open = true;
     const list = document.getElementById('custom-q-list');
     list.innerHTML = '';
     state.customQuestions.forEach(q => {
@@ -389,6 +422,16 @@
     document.getElementById('bonus-badge').classList.toggle('hidden', !msg.bonus);
     if (msg.bonus) sfxBonus();
     document.getElementById('question-text').innerHTML = bidiSafe(msg.text);
+    // Shrinking timer bar, per Researcher finding 2026-08-10: the only visible countdown used to
+    // be the pre-question 3-2-1, nothing during the actual 15s vote window itself. Restart-a-CSS-
+    // transition trick: snap back to full with no transition, force a reflow, then re-enable the
+    // transition and set the end state so the browser actually animates it.
+    const fill = document.getElementById('vote-timer-fill');
+    fill.style.transition = 'none';
+    fill.style.width = '100%';
+    void fill.offsetWidth;
+    fill.style.transition = `width ${VOTE_SECONDS}s linear`;
+    fill.style.width = '0%';
     document.getElementById('vote-count').textContent = `0/${msg.players.length} הצביעו`;
     const grid = document.getElementById('vote-grid');
     grid.className = msg.players.length > 8 ? 'many' : '';
@@ -397,12 +440,15 @@
       const btn = document.createElement('button');
       btn.className = `vote-btn tile-${p.color}` + (p.connected === false ? ' disconnected' : '');
       // Streak flame, per idea-manager brainstorm 2026-08-10: only shown from 2 consecutive wins
-      // up, a single win isn't a "streak" yet.
-      const streakTag = p.streak >= 2 ? `<span class="streak-tag">🔥${p.streak}</span> ` : '';
+      // up, a single win isn't a "streak" yet. title = minimal hover/long-press hint (Gatekeeper
+      // finding: nothing anywhere explains what the flame means).
+      const streakTag = p.streak >= 2 ? `<span class="streak-tag" title="רצף ניצחונות">🔥${p.streak}</span> ` : '';
       btn.innerHTML = streakTag + (p.emoji ? p.emoji + ' ' : '') + bidiSafe(p.name) + (p.connected === false ? ' <span class="muted">(מתנתק)</span>' : '');
       btn.dataset.playerId = p.id;
       btn.addEventListener('click', () => {
-        if (state.myVote) return;
+        // Changeable until the round resolves, per idea-manager finding 2026-08-10: a misclick
+        // on a crowded phone screen used to be permanent.
+        if (state.myVote === p.id) return;
         state.myVote = p.id;
         grid.querySelectorAll('.vote-btn').forEach(b => b.classList.remove('picked'));
         btn.classList.add('picked');
@@ -531,12 +577,14 @@
   }
 
   document.getElementById('btn-continue-playing').addEventListener('click', () => send({ type: 'continue_playing' }));
-  document.getElementById('btn-exit').addEventListener('click', () => {
+  function leaveGame() {
     send({ type: 'leave_room' });
     clearSession();
     history.replaceState(null, '', '/');
     location.reload();
-  });
+  }
+  document.getElementById('btn-exit').addEventListener('click', leaveGame);
+  document.getElementById('btn-leave-game').addEventListener('click', leaveGame);
   document.getElementById('btn-error-home').addEventListener('click', () => {
     clearSession();
     history.replaceState(null, '', '/');
@@ -596,6 +644,15 @@
       case 'custom_question_rejected':
         customQError.textContent = msg.reason === 'limit' ? 'הגעתם למספר המקסימלי של שאלות לחדר (30)' : 'אי אפשר להוסיף שאלה ריקה';
         customQError.classList.remove('hidden');
+        break;
+
+      // Builder finding 2026-08-10: a deploy used to just silently kill the connection. The
+      // reconnect logic below still does the real work (auto-reconnect + rejoin), this only
+      // makes the banner say something more accurate than the generic "connection lost" text
+      // for the next few seconds, so it doesn't read as the player's own wifi failing.
+      case 'server_restarting':
+        state.serverRestarting = true;
+        showBanner('השרת מתעדכן, נחזור תוך כמה שניות...');
         break;
 
       case 'countdown':

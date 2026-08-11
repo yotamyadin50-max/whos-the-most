@@ -17,6 +17,7 @@
 </head>
 <body>
 <button id="btn-sound-toggle" aria-label="השתק צלילים" aria-pressed="false"></button>
+<button id="btn-leave-game" class="hidden" aria-label="עזוב משחק">✕</button>
 <div id="connection-banner" class="hidden" role="status" aria-live="polite">מתחבר מחדש...</div>
 <div class="app">
 
@@ -82,15 +83,15 @@
         <button class="count-toggle-btn" data-count="15">15</button>
       </div>
     </div>
-    <div class="stack" style="margin-top:var(--space-3)">
-      <p class="muted">הוסיפו שאלה אישית לחדר (אופציונלי)</p>
+    <details class="custom-q-details" id="custom-q-details" style="margin-top:var(--space-3)">
+      <summary class="muted">הוסיפו שאלה אישית לחדר (אופציונלי)</summary>
       <div class="custom-q-add-row">
         <input type="text" id="custom-q-input" maxlength="120" placeholder="מי הכי... (השאלה שלכם)">
         <button class="btn-secondary" id="btn-add-custom-q">הוסף</button>
       </div>
       <p class="muted hidden" id="custom-q-error" role="alert" style="color:var(--error)"></p>
       <div id="custom-q-list"></div>
-    </div>
+    </details>
     <div class="stack" style="margin-top:var(--space-3)">
       <h2 id="players-heading">בחדר עכשיו (0)</h2>
       <div id="players-list"></div>
@@ -112,6 +113,7 @@
     <p class="muted center" id="round-progress"></p>
     <p class="muted center hidden" id="bonus-badge">⭐ שאלת האלופים, נקודה כפולה!</p>
     <div class="speech-bubble" id="question-text"></div>
+    <div class="vote-timer-track" aria-hidden="true"><div class="vote-timer-fill" id="vote-timer-fill"></div></div>
     <p class="muted center" id="vote-count" style="margin-top:var(--space-2)"></p>
     <div id="vote-grid"></div>
   </section>
@@ -121,6 +123,7 @@
     <div id="result-avatar" class="result-avatar hidden" aria-hidden="true"></div>
     <div id="result-name"></div>
     <div id="result-votes"></div>
+    <p class="muted" style="font-size:12px;margin-top:var(--space-2);margin-bottom:2px;">הגיבו לתוצאה</p>
     <div class="reaction-row" id="reaction-row">
       <button class="reaction-btn" type="button" data-emoji="🤣" aria-label="הגיבו בצחוק">🤣</button>
       <button class="reaction-btn" type="button" data-emoji="😱" aria-label="הגיבו בהלם">😱</button>
