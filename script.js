@@ -493,6 +493,7 @@
         grid.querySelectorAll('.vote-btn').forEach(b => b.classList.remove('picked'));
         btn.classList.add('picked');
         sfxVote();
+        if (navigator.vibrate) navigator.vibrate(30); // same feedback the countdown already gets, per Researcher finding: the vote tap itself had none
         send({ type: 'vote', targetPlayerId: p.id });
       });
       grid.appendChild(btn);

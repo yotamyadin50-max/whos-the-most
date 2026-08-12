@@ -69,7 +69,7 @@
   <section class="screen" id="screen-lobby" data-view="lobby">
     <div class="room-code-card">
       <p class="label">קוד החדר</p>
-      <div id="room-code-display">----</div>
+      <div id="room-code-display" dir="ltr">----</div>
       <div class="share-row" style="margin-top:var(--space-2)">
         <button class="btn-success" id="btn-share-whatsapp">שתף בוואטסאפ</button>
         <button class="btn-secondary" id="btn-copy-link">העתק קישור</button>
@@ -115,7 +115,7 @@
     <p class="muted center hidden" id="bonus-badge">⭐ שאלת האלופים, נקודה כפולה!</p>
     <div class="speech-bubble" id="question-text"></div>
     <div class="vote-timer-track" aria-hidden="true"><div class="vote-timer-fill" id="vote-timer-fill"></div></div>
-    <p class="muted center" id="vote-count" style="margin-top:var(--space-2)"></p>
+    <p class="muted center" id="vote-count" style="margin-top:var(--space-2)" aria-live="polite" aria-atomic="true"></p>
     <div id="vote-grid"></div>
   </section>
 
