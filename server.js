@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const { QUESTIONS, CLUSTER_SIZE } = require('./pack.js');
+const { ALLOWED_EMOJI, REACTION_EMOJI, MAX_CUSTOM_QUESTION_LEN, QUESTION_COUNT_OPTIONS } = require('./constants.js');
 
 const PORT = process.env.PORT || 8600;
 const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
@@ -28,7 +29,6 @@ process.on('unhandledRejection', (err) => console.error('[unhandledRejection]', 
 
 const MIN_PLAYERS = 3;
 const MAX_PLAYERS = 20;
-const VOTE_SECONDS = 15;
 const COUNTDOWN_SECONDS = 3;
 const RESULT_DISPLAY_MS = 4000;
 const ROOM_IDLE_MS = 30 * 60 * 1000; // 30 minutes, per _process/02-site-planner-plan.md edge case 4
@@ -49,21 +49,33 @@ const RECONNECT_GRACE_MS = 3 * 60 * 1000;
 // before RECONNECT_GRACE_MS, so the room never gets stuck waiting on them.
 const HOST_HANDOFF_DELAY_MS = 8000;
 const MAX_CUSTOM_QUESTIONS = 30; // per-room cap, in-memory only, prevents one room ballooning state
-const MAX_CUSTOM_QUESTION_LEN = 120; // roughly matches the bank's own question length
+// ALLOWED_EMOJI, REACTION_EMOJI, MAX_CUSTOM_QUESTION_LEN, QUESTION_COUNT_OPTIONS now live in
+// constants.js (Gatekeeper finding 2026-08-12), required at the top of this file, single source
+// shared with the client instead of two hardcoded copies each.
 
 const AVATAR_COLORS = ['blue', 'pink', 'green', 'orange', 'yellow', 'cyan'];
-// Curated, closed set, not free-text emoji input: keeps validation trivial (exact membership
-// check, no unicode-range/length edge cases to get wrong) and mirrors the same fixed list the
-// client's picker renders, per idea-manager brainstorm #5, 2026-08-10.
-const ALLOWED_EMOJI = ['😂', '🔥', '😎', '🥳', '🎉', '👑', '💥', '🦊', '🍕', '⚡'];
 const BONUS_POINTS = 2; // last question of the round, "שאלת האלופים", per idea-manager brainstorm #3
-// Reveal-screen reactions, deliberately a distinct set from ALLOWED_EMOJI (personal avatars),
-// so the two never look interchangeable in the UI. Purely a "juice" layer, no scoring impact,
-// added per "תחשוב על זה ותשפר קצת" (raise the level, a bit funnier), 2026-08-10.
-const REACTION_EMOJI = ['🤣', '😱', '🔥', '👏'];
+
+// Larger groups take longer to scroll through more names and decide, per Researcher finding
+// 2026-08-12: the vote window used to be a flat 15s no matter the group size, from 3 players to
+// the MAX_PLAYERS=20 ceiling.
+function voteSecondsFor(playerCount) {
+  if (playerCount <= 6) return 15;
+  if (playerCount <= 12) return 20;
+  return 25;
+}
 
 const server = http.createServer((req, res) => {
   let filePath = req.url.split('?')[0];
+  // Minimal operational visibility, per Builder finding 2026-08-12: the only way to know if
+  // anyone is actually playing right now used to be digging through Render's raw logs. No
+  // per-room detail (that would leak room codes/names to anyone who finds the URL), just counts.
+  if (filePath === '/status') {
+    let connectedPlayers = 0;
+    for (const room of rooms.values()) connectedPlayers += activePlayers(room).length;
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ activeRooms: rooms.size, connectedPlayers, uptimeSeconds: Math.floor(process.uptime()) }));
+  }
   if (filePath === '/' || filePath.startsWith('/room/')) filePath = '/index.html';
   const full = path.join(__dirname, filePath);
   if (!full.startsWith(__dirname)) { res.writeHead(403); return res.end('Forbidden'); }
@@ -217,6 +229,7 @@ function createRoom(questionCount) {
     reactedThisRound: new Set(), // playerId -> already sent a reveal-screen reaction this round
     pendingJoins: [], // {ws, rawName} queued while phase !== 'lobby'
     roundTimer: null,
+    currentVoteSeconds: null, // set by startQuestion, group-size-scaled (Researcher finding 2026-08-12)
     lastActivity: Date.now(),
   };
   rooms.set(code, room);
@@ -280,13 +293,16 @@ function startQuestion(room) {
   // voteSeconds sent explicitly, per Builder finding 2026-08-10: the client used to hardcode its
   // own copy of this to drive the timer-bar animation, synced only by a comment, a real drift
   // risk if one side ever changed without the other. The server is now the single source of
-  // truth, the client reads this value instead of keeping its own constant.
+  // truth, the client reads this value instead of keeping its own constant. Computed once here
+  // (not re-derived later) so the broadcast, the resolve timeout, and a mid-question rejoin's
+  // `current.voteSeconds` all agree, per Researcher finding 2026-08-12 (group-size-scaled timing).
+  room.currentVoteSeconds = voteSecondsFor(activePlayers(room).length);
   broadcast(room, {
     type: 'question', text, index: room.currentRoundIndex, total: room.roundQuestions.length, bonus,
-    voteSeconds: VOTE_SECONDS, players: publicPlayers(room),
+    voteSeconds: room.currentVoteSeconds, players: publicPlayers(room),
   });
   clearTimeout(room.roundTimer);
-  room.roundTimer = setTimeout(() => resolveRound(room), VOTE_SECONDS * 1000);
+  room.roundTimer = setTimeout(() => resolveRound(room), room.currentVoteSeconds * 1000);
 }
 
 function resolveRound(room) {
@@ -426,7 +442,7 @@ wss.on('connection', (ws) => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
 
     if (msg.type === 'create_room') {
-      const count = [5, 10, 15].includes(msg.questionCount) ? msg.questionCount : 10;
+      const count = QUESTION_COUNT_OPTIONS.includes(msg.questionCount) ? msg.questionCount : 10;
       const room = createRoom(count);
       const player = addPlayer(room, ws, msg.name, msg.emoji, { asHost: true });
       send(ws, { type: 'room_created', code: room.code, playerId: player.id, hostId: room.hostId, players: publicPlayers(room), questionCount: room.questionCount, customQuestions: publicCustomQuestions(room) });
@@ -454,7 +470,7 @@ wss.on('connection', (ws) => {
           type: 'room_joined', code: room.code, playerId: existing.id, hostId: room.hostId, phase: room.phase,
           players: publicPlayers(room), questionCount: room.questionCount, customQuestions: publicCustomQuestions(room),
           current: room.phase === 'question'
-            ? { text: room.roundQuestions[room.currentRoundIndex], index: room.currentRoundIndex, total: room.roundQuestions.length, bonus: room.currentRoundIndex === room.roundQuestions.length - 1, voteSeconds: VOTE_SECONDS }
+            ? { text: room.roundQuestions[room.currentRoundIndex], index: room.currentRoundIndex, total: room.roundQuestions.length, bonus: room.currentRoundIndex === room.roundQuestions.length - 1, voteSeconds: room.currentVoteSeconds }
             : null,
         });
         // A rejoin during 'question' gets its state via `current` above, and 'countdown'/'result'
@@ -482,7 +498,7 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'set_question_count') {
       if (ws.playerId !== room.hostId || room.phase !== 'lobby') return;
-      if (![5, 10, 15].includes(msg.count)) return;
+      if (!QUESTION_COUNT_OPTIONS.includes(msg.count)) return;
       room.questionCount = msg.count;
       broadcastLobbyState(room);
       return;

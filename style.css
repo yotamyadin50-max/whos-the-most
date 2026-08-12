@@ -58,9 +58,12 @@ h1 { font-size: 30px; }
 h2 { font-size: 24px; }
 p { margin: 0; }
 
+/* 40px -> 44px, per Gatekeeper finding 2026-08-12: below the 44x44 WCAG touch-target minimum
+   the accessibility spec itself calls for, measured directly (not eyeballed) against these
+   values. Same bump applied to #btn-leave-game and the other small controls below. */
 #btn-sound-toggle {
   position: fixed; top: var(--space-2); inset-inline-end: var(--space-2); z-index: 10;
-  width: 40px; height: 40px; min-height: 40px; padding: 0;
+  width: 44px; height: 44px; min-height: 44px; padding: 0;
   border-radius: 50%; background: var(--surface); border: 3px solid var(--outline);
   display: flex; align-items: center; justify-content: center;
 }
@@ -70,7 +73,7 @@ p { margin: 0; }
    Mirrors #btn-sound-toggle's fixed-corner treatment, opposite side. */
 #btn-leave-game {
   position: fixed; top: var(--space-2); inset-inline-start: var(--space-2); z-index: 10;
-  width: 40px; height: 40px; min-height: 40px; padding: 0; font-size: 16px; line-height: 1;
+  width: 44px; height: 44px; min-height: 44px; padding: 0; font-size: 16px; line-height: 1;
   border-radius: 50%; background: var(--surface); border: 3px solid var(--outline); color: var(--muted);
   display: flex; align-items: center; justify-content: center;
 }
@@ -171,6 +174,9 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
   background: var(--tile-blue); color: var(--ink);
 }
 .avatar-preview.bump { transform: scale(1.05); }
+/* Site Planner finding 2026-08-12: warm-entry (room-link) joiners skip the home screen entirely
+   and never see its explanation of what the game even is. */
+#warm-entry-context { max-width: 280px; }
 
 .emoji-picker-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 280px; align-self: center; }
 .emoji-btn {
@@ -198,7 +204,7 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
 #question-count-label { text-align: center; }
 .count-toggle-row { display: flex; gap: 8px; justify-content: center; }
 .count-toggle-btn {
-  min-height: 40px; min-width: 56px; padding: 8px 12px; font-size: 15px;
+  min-height: 44px; min-width: 56px; padding: 8px 12px; font-size: 15px;
   background: var(--surface); color: var(--ink); border: 3px solid var(--outline); border-radius: 12px;
 }
 .count-toggle-btn.selected { background: var(--accent); color: var(--bg); }
@@ -233,13 +239,16 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
 .custom-q-chip .custom-q-text { font-size: 15px; }
 .custom-q-chip .custom-q-author { font-size: 12px; color: var(--muted); display: block; margin-top: 2px; }
 .custom-q-chip .btn-remove-q {
-  flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%;
+  flex-shrink: 0; width: 44px; height: 44px; border-radius: 50%;
   background: transparent; border: 2px solid var(--outline); color: var(--muted);
   font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
 
 /* --- Countdown --- */
 #screen-countdown { align-items: center; justify-content: center; }
+/* "שאלה X מתוך Y", per Researcher finding 2026-08-12: the countdown right before a question used
+   to show nothing, only the question screen itself had this. */
+#countdown-progress { font-family: var(--font-numeral); margin-bottom: var(--space-2); }
 #countdown-number { font-family: var(--font-numeral); font-size: 96px; color: var(--accent); animation: pulse 1s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 @media (prefers-reduced-motion: reduce) { #countdown-number { animation: none; } }
@@ -276,7 +285,14 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
 /* Researcher finding 2026-08-10: one more breakpoint so a real large group (up to
    MAX_PLAYERS=20) isn't stuck with excessive scrolling before every option is visible. */
 #vote-grid.lots { grid-template-columns: repeat(4, 1fr); gap: 8px; }
-#vote-grid.lots .vote-btn { min-height: 48px; font-size: 13px; padding: 6px 4px; }
+/* Web Designer finding 2026-08-12: at 4 narrow columns (up to MAX_PLAYERS=20), a long typed
+   name (up to 12 chars) could wrap awkwardly or blow out the button's height. Single-line with
+   ellipsis instead, same tradeoff already accepted for #room-code-display-style tight layouts. */
+#vote-grid.lots .vote-btn {
+  min-height: 48px; font-size: 13px; padding: 6px 4px;
+  display: flex; align-items: center; justify-content: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .vote-btn { min-height: 64px; font-size: 16px; position: relative; }
 /* Web Designer finding 2026-08-10: the picked state was just a thicker border, no icon or
    motion, the weakest moment in an otherwise "juicy" interaction chain. */
@@ -313,6 +329,10 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
   display: flex; align-items: center; justify-content: center;
 }
 .reaction-btn:disabled { opacity: 0.4; transform: none; }
+/* Web Designer finding 2026-08-12: all 4 used to gray out identically, no way to tell which one
+   you actually tapped. The tapped one stays at full opacity with a bright border, unlike its
+   3 disabled siblings. */
+.reaction-btn.picked { opacity: 1 !important; border-color: var(--accent); border-width: 4px; }
 #reaction-burst-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .reaction-burst { position: absolute; bottom: 90px; font-size: 30px; animation: reaction-float 1600ms ease-out forwards; }
 @keyframes reaction-float {
@@ -322,10 +342,14 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
 }
 
 /* --- Final results --- */
-.crown { font-size: 40px; }
 .leaderboard-row, .votes-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--surface); }
 .leaderboard-row .n { font-family: var(--font-numeral); color: var(--accent); }
 .votes-row .n { font-family: var(--font-numeral); color: var(--muted); }
+/* Podium accent for the top 3, per Web Designer finding 2026-08-12: nothing but the crown told
+   the 1st row apart from every other row, no sense of "close race" for 2nd/3rd either. */
+.leaderboard-row:nth-of-type(1) { border-inline-start: 4px solid var(--accent); padding-inline-start: 8px; }
+.leaderboard-row:nth-of-type(2) { border-inline-start: 4px solid var(--muted); padding-inline-start: 8px; }
+.leaderboard-row:nth-of-type(3) { border-inline-start: 4px solid var(--tile-orange); padding-inline-start: 8px; }
 .final-actions { display: flex; gap: var(--space-2); }
 .final-actions button { flex: 1; }
 
@@ -334,6 +358,19 @@ input[type="text"]:focus-visible { outline: 3px solid var(--ink); outline-offset
 .final-share-card {
   background: var(--surface); border: 3px solid var(--outline); border-radius: var(--radius);
   padding: var(--space-3); text-align: center; margin-top: var(--space-2);
+  position: relative; overflow: hidden;
+}
+/* Win celebration, per Critic finding 2026-08-12: the overall-winner moment (the biggest one in
+   the whole night) had less visual "juice" than a single round's reveal. Same spawn/remove
+   mechanism as .reaction-burst, a short colored-piece fall instead of a repeated emoji. */
+#confetti-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.confetti-piece {
+  position: absolute; top: -12px; width: 8px; height: 14px; border-radius: 2px;
+  animation: confetti-fall 1100ms ease-in forwards;
+}
+@keyframes confetti-fall {
+  0% { opacity: 1; transform: translateY(0) rotate(0deg); }
+  100% { opacity: 0; transform: translateY(160px) rotate(220deg); }
 }
 .final-share-brand { font-family: var(--font-heading); font-size: 15px; color: var(--muted); margin: 0 0 var(--space-2); }
 .final-share-avatar {

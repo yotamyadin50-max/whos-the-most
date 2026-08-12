@@ -27,6 +27,7 @@
     <p class="subhead">משחק חי עם החברים. מצביעים מי הכי מה, בלי לשאול בפנים.</p>
     <div class="speech-bubble-decor speech-bubble" id="home-example-question" aria-hidden="true" style="max-width:220px;font-size:16px;">מי הכי יצחק מהבדיחות של עצמו?</div>
     <div class="stack" style="margin-top:var(--space-4)">
+      <button class="btn-secondary btn-block hidden" id="btn-quick-rejoin" type="button"></button>
       <button class="btn-primary btn-block" id="btn-create">צור חדר חדש</button>
       <button class="btn-secondary btn-block" id="btn-show-join">יש לי קוד</button>
       <div id="join-code-row" class="hidden stack">
@@ -43,22 +44,12 @@
   <section class="screen" id="screen-name" data-view="name">
     <div class="grow stack center" style="justify-content:center;">
       <h2>איך קוראים לך?</h2>
+      <p class="muted center hidden" id="warm-entry-context">מוזמנים למשחק "מי הכי", מצביעים מי הכי עושה מה, בלי לשאול בפנים. קצר וכיפי.</p>
       <div class="avatar-preview tile-blue" id="avatar-preview" aria-hidden="true">?</div>
       <input type="text" id="name-input" maxlength="12" placeholder="השם שלך" dir="auto" autofocus>
       <p class="muted hidden" id="name-hint">תזין שם כדי להמשיך</p>
-      <p class="muted center">בחרו אימוג'י אישי (אופציונלי)</p>
-      <div class="emoji-picker-row" id="emoji-picker-row">
-        <button class="emoji-btn" type="button" data-emoji="😂" aria-label="בחר אימוג'י צוחק">😂</button>
-        <button class="emoji-btn" type="button" data-emoji="🔥" aria-label="בחר אימוג'י אש">🔥</button>
-        <button class="emoji-btn" type="button" data-emoji="😎" aria-label="בחר אימוג'י מגניב">😎</button>
-        <button class="emoji-btn" type="button" data-emoji="🥳" aria-label="בחר אימוג'י חוגג">🥳</button>
-        <button class="emoji-btn" type="button" data-emoji="🎉" aria-label="בחר אימוג'י קונפטי">🎉</button>
-        <button class="emoji-btn" type="button" data-emoji="👑" aria-label="בחר אימוג'י כתר">👑</button>
-        <button class="emoji-btn" type="button" data-emoji="💥" aria-label="בחר אימוג'י פיצוץ">💥</button>
-        <button class="emoji-btn" type="button" data-emoji="🦊" aria-label="בחר אימוג'י שועל">🦊</button>
-        <button class="emoji-btn" type="button" data-emoji="🍕" aria-label="בחר אימוג'י פיצה">🍕</button>
-        <button class="emoji-btn" type="button" data-emoji="⚡" aria-label="בחר אימוג'י ברק">⚡</button>
-      </div>
+      <p class="muted center">בחרו אימוג'י אישי, ככה יזהו אתכם (אופציונלי)</p>
+      <div class="emoji-picker-row" id="emoji-picker-row"></div>
     </div>
     <div class="sticky-bottom">
       <button class="btn-primary btn-block" id="btn-name-continue" disabled>המשך</button>
@@ -77,26 +68,22 @@
     </div>
     <div class="stack" style="margin-top:var(--space-3)">
       <p class="muted" id="question-count-label">כמות שאלות: 10</p>
-      <div class="count-toggle-row hidden" id="question-count-row">
-        <button class="count-toggle-btn" data-count="5">5</button>
-        <button class="count-toggle-btn" data-count="10">10</button>
-        <button class="count-toggle-btn" data-count="15">15</button>
-      </div>
+      <div class="count-toggle-row hidden" id="question-count-row"></div>
+    </div>
+    <div class="stack" style="margin-top:var(--space-3)">
+      <h2 id="players-heading">בחדר עכשיו (0)</h2>
+      <div id="players-list"></div>
     </div>
     <details class="custom-q-details" id="custom-q-details" style="margin-top:var(--space-3)">
-      <summary class="muted">הוסיפו שאלה אישית לחדר (אופציונלי)</summary>
+      <summary class="muted">יש בדיחה פנימית? תוסיפו שאלה משלכם (אופציונלי)</summary>
       <button class="btn-secondary btn-block hidden" id="btn-reuse-custom-q" type="button"></button>
       <div class="custom-q-add-row">
-        <input type="text" id="custom-q-input" maxlength="120" placeholder="מי הכי... (השאלה שלכם)">
+        <input type="text" id="custom-q-input" placeholder="מי הכי... (השאלה שלכם)">
         <button class="btn-secondary" id="btn-add-custom-q">הוסף</button>
       </div>
       <p class="muted hidden" id="custom-q-error" role="alert" style="color:var(--error)"></p>
       <div id="custom-q-list"></div>
     </details>
-    <div class="stack" style="margin-top:var(--space-3)">
-      <h2 id="players-heading">בחדר עכשיו (0)</h2>
-      <div id="players-list"></div>
-    </div>
     <div class="sticky-bottom">
       <button class="btn-primary btn-block" id="btn-start-game" disabled>התחל משחק</button>
       <p class="muted center" id="start-blocked-reason"></p>
@@ -106,6 +93,7 @@
 
   <!-- מסך 5א: ספירה לאחור -->
   <section class="screen" id="screen-countdown" data-view="countdown">
+    <p class="muted center" id="countdown-progress"></p>
     <div id="countdown-number">3</div>
   </section>
 
@@ -116,6 +104,7 @@
     <div class="speech-bubble" id="question-text"></div>
     <div class="vote-timer-track" aria-hidden="true"><div class="vote-timer-fill" id="vote-timer-fill"></div></div>
     <p class="muted center" id="vote-count" style="margin-top:var(--space-2)" aria-live="polite" aria-atomic="true"></p>
+    <p class="muted center" id="vote-change-hint" style="font-size:11px;">אפשר להחליף בחירה עד שהזמן נגמר</p>
     <div id="vote-grid"></div>
   </section>
 
@@ -125,22 +114,19 @@
     <div id="result-name"></div>
     <div id="result-votes"></div>
     <p class="muted" style="font-size:12px;margin-top:var(--space-2);margin-bottom:2px;">הגיבו לתוצאה</p>
-    <div class="reaction-row" id="reaction-row">
-      <button class="reaction-btn" type="button" data-emoji="🤣" aria-label="הגיבו בצחוק">🤣</button>
-      <button class="reaction-btn" type="button" data-emoji="😱" aria-label="הגיבו בהלם">😱</button>
-      <button class="reaction-btn" type="button" data-emoji="🔥" aria-label="הגיבו באש">🔥</button>
-      <button class="reaction-btn" type="button" data-emoji="👏" aria-label="הגיבו במחיאות כפיים">👏</button>
-    </div>
+    <div class="reaction-row" id="reaction-row"></div>
     <div id="reaction-burst-layer" aria-hidden="true"></div>
+    <p class="muted" id="result-mini-code" style="font-size:11px;"></p>
   </section>
 
   <!-- מסך 6: תוצאות סופיות -->
   <section class="screen" id="screen-final" data-view="final">
     <div class="grow stack" style="overflow-y:auto;">
       <div class="final-share-card" id="final-share-card">
+        <div id="confetti-layer" aria-hidden="true"></div>
         <p class="final-share-brand">מי הכי? 🎉</p>
         <div id="final-share-champion"></div>
-        <p class="final-share-sub">הסבב נגמר</p>
+        <p class="final-share-sub">זהו, נגמר... איזה ערב 😅</p>
       </div>
       <div class="speech-bubble" id="personal-highlight-card" style="font-size:17px;"></div>
       <p class="strongest-moment hidden" id="strongest-moment"></p>
@@ -170,6 +156,7 @@
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="live-region" aria-live="polite" class="hidden"></div>
+<script src="/constants.js"></script>
 <script src="/script.js"></script>
 </body>
 </html>

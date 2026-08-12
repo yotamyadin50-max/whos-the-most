@@ -117,7 +117,29 @@
     soundEnabled: localStorage.getItem('whosmost_sound') !== 'off',
     intentionalClose: false,
     serverRestarting: false,
+    roundIndex: -1, // per Researcher finding 2026-08-12: lets the countdown screen show "שאלה X מתוך Y" too, not just the question screen
   };
+
+  // Emoji picker, reaction row, and question-count toggle are now generated FROM constants.js
+  // (ALLOWED_EMOJI/EMOJI_LABELS/REACTION_EMOJI/REACTION_LABELS/QUESTION_COUNT_OPTIONS, loaded as
+  // globals before this file), per Gatekeeper finding 2026-08-12: these used to be hardcoded twice
+  // (once here, once in server.js), the same drift risk already fixed once for VOTE_SECONDS.
+  function buildEmojiPicker() {
+    const row = document.getElementById('emoji-picker-row');
+    row.innerHTML = ALLOWED_EMOJI.map(e => `<button class="emoji-btn" type="button" data-emoji="${e}" aria-label="בחר אימוג'י ${EMOJI_LABELS[e] || ''}">${e}</button>`).join('');
+  }
+  function buildReactionRow() {
+    const row = document.getElementById('reaction-row');
+    row.innerHTML = REACTION_EMOJI.map(e => `<button class="reaction-btn" type="button" data-emoji="${e}" aria-label="הגיבו ב${REACTION_LABELS[e] || ''}">${e}</button>`).join('');
+  }
+  function buildQuestionCountRow() {
+    const row = document.getElementById('question-count-row');
+    row.innerHTML = QUESTION_COUNT_OPTIONS.map(n => `<button class="count-toggle-btn" data-count="${n}">${n}</button>`).join('');
+  }
+  buildEmojiPicker();
+  buildReactionRow();
+  buildQuestionCountRow();
+  document.getElementById('custom-q-input').maxLength = MAX_CUSTOM_QUESTION_LEN;
 
   // Site Planner finding 2026-08-10: the only way to leave was closing the tab, no in-game exit
   // path, `btn-exit` only ever existed on the final screen. Shown on every screen where a player
@@ -180,7 +202,13 @@
       // actual reconnect attempts too, not just the initial 300ms warning, otherwise this gets
       // immediately overwritten by the generic "connection lost" text the moment the socket
       // actually drops, which is exactly when the reassurance matters most.
-      showBanner(state.serverRestarting ? 'השרת מתעדכן, מתחברים מחדש...' : 'החיבור נותק, מתחבר מחדש...');
+      // Builder finding 2026-08-12: retries run every 5s forever with no upper bound, which is
+      // correct (never give up on your own), but the banner text never changed either, so a
+      // genuinely bad connection just kept reading the same "מתחבר מחדש..." for minutes with no
+      // acknowledgement anything's actually wrong. ~13 attempts is roughly a minute of failed
+      // retries at the 5s-capped backoff below.
+      const longWait = reconnectAttempt >= 13;
+      showBanner(state.serverRestarting ? 'השרת מתעדכן, מתחברים מחדש...' : longWait ? 'עדיין מנסים להתחבר... בדקו את האינטרנט' : 'החיבור נותק, מתחבר מחדש...');
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(openSocket, Math.min(1000 * reconnectAttempt, 5000));
     });
@@ -194,6 +222,38 @@
   }
   function clearSession() { sessionStorage.removeItem('whosmost'); }
 
+  // Quick-rejoin, per idea-manager brainstorm 2026-08-12: a separate, longer-lived localStorage
+  // entry (unlike sessionStorage above, which only resumes the SAME still-open tab/session). This
+  // is for coming back later, a different tab, or after actually closing the browser, offering a
+  // one-tap way back into a NEW room with the same code and name rather than retyping everything.
+  const LS_LAST_ROOM_KEY = 'whosmost_last_room';
+  function saveLastRoom(code, name) {
+    if (!code || !name) return;
+    try { localStorage.setItem(LS_LAST_ROOM_KEY, JSON.stringify({ code, name })); } catch { /* storage unavailable, skip */ }
+  }
+  function loadLastRoom() {
+    try { return JSON.parse(localStorage.getItem(LS_LAST_ROOM_KEY) || 'null'); } catch { return null; }
+  }
+  function renderQuickRejoin() {
+    const btn = document.getElementById('btn-quick-rejoin');
+    const last = loadLastRoom();
+    if (!last || !last.code || !last.name) { btn.classList.add('hidden'); return; }
+    btn.innerHTML = bidiSafe(`הצטרפו לחדר האחרון (${last.name}, ${last.code})`);
+    btn.classList.remove('hidden');
+  }
+  document.getElementById('btn-quick-rejoin').addEventListener('click', () => {
+    const last = loadLastRoom();
+    if (!last) return;
+    // Reuses the exact same name-entry -> join_room path as a normal join, just pre-filled, so
+    // there's no new WS-timing risk (a bare send() here could race the socket not being open yet).
+    state.mode = 'join';
+    state.pendingJoinCode = last.code;
+    showScreen('name');
+    nameInput.value = last.name;
+    nameInput.dispatchEvent(new Event('input'));
+    nameInput.focus();
+  });
+
   // ---------- Home screen ----------
   const nameInput = document.getElementById('name-input');
   const avatarPreview = document.getElementById('avatar-preview');
@@ -206,6 +266,7 @@
   });
   document.getElementById('btn-show-join').addEventListener('click', () => {
     document.getElementById('join-code-row').classList.remove('hidden');
+    document.getElementById('room-code-input').focus(); // Site Planner finding 2026-08-12: the field appeared but never actually got focus
   });
   document.getElementById('btn-go-join').addEventListener('click', () => {
     const code = document.getElementById('room-code-input').value.trim().toUpperCase();
@@ -381,6 +442,7 @@
     state.hostId = msg.hostId;
     state.isHost = msg.hostId === state.playerId;
     if (typeof msg.questionCount === 'number') state.questionCount = msg.questionCount;
+    state.roundIndex = -1; // fresh set of rounds starting (new room or "עוד סבב"), per the countdown-progress feature above
     const isFreshLobbyRender = document.querySelector('.screen.active').dataset.view !== 'lobby';
     const grew = !isFreshLobbyRender && msg.players.length > state.players.length;
     state.players = msg.players;
@@ -427,6 +489,20 @@
     let n = seconds;
     const el = document.getElementById('countdown-number');
     el.textContent = n;
+    // Same "שאלה X מתוך Y" the question screen already shows, per Researcher finding 2026-08-12:
+    // the countdown that comes right before it showed nothing, a small disorientation gap.
+    // state.roundIndex is the LAST shown question's 0-based index (-1 before the first one ever),
+    // so +1 is exactly the upcoming question's index. Hidden on the upcoming bonus question, same
+    // rule the question screen itself already uses (the bonus badge implies "this is the last one").
+    const progressEl = document.getElementById('countdown-progress');
+    const nextIndex = state.roundIndex + 1;
+    const total = state.roundTotal || state.questionCount;
+    if (typeof total === 'number' && nextIndex < total - 1) {
+      progressEl.textContent = `שאלה ${nextIndex + 1} מתוך ${total}`;
+      progressEl.classList.remove('hidden');
+    } else {
+      progressEl.classList.add('hidden');
+    }
     announce(`מתחילים בעוד ${n}`);
     clearInterval(countdownTimer);
     countdownTimer = setInterval(() => {
@@ -443,6 +519,8 @@
   function renderQuestion(msg) {
     state.myVote = null;
     state.players = msg.players;
+    if (typeof msg.index === 'number') state.roundIndex = msg.index;
+    if (typeof msg.total === 'number') state.roundTotal = msg.total;
     // "שאלה X מתוך Y", per Researcher finding 2026-08-10: index/total were already sent by the
     // server every question but never actually shown to the player. Critic finding 2026-08-10:
     // the question screen (seen up to 15x a game) was getting stacked with too many elements, so
@@ -547,8 +625,13 @@
     announce(nameEl.textContent);
     sfxReveal();
     state.myReaction = null;
-    document.querySelectorAll('.reaction-btn').forEach(b => { b.disabled = false; });
+    document.querySelectorAll('.reaction-btn').forEach(b => { b.disabled = false; b.classList.remove('picked'); });
     document.getElementById('reaction-burst-layer').innerHTML = '';
+    // Room code visible during play too, not just the lobby, per Critic finding 2026-08-12: a
+    // host wanting to re-share with a latecomer mid-game had to go dig up the original WhatsApp
+    // message. Placed here specifically (once per round, a natural pause), not on the busier
+    // question screen.
+    document.getElementById('result-mini-code').innerHTML = state.roomCode ? bidiSafe(`קוד החדר: ${state.roomCode}`) : '';
     showScreen('result');
   }
 
@@ -563,11 +646,28 @@
     layer.appendChild(span);
     span.addEventListener('animationend', () => span.remove());
   }
+
+  // Final-screen win celebration, per Critic finding 2026-08-12. Same spawn+CSS-animation+
+  // remove-on-end mechanism as spawnReactionBurst above, adapted for a one-time burst instead of
+  // a per-tap trigger: a handful of small colored pieces falling from the top of the champion card.
+  function spawnConfetti() {
+    const layer = document.getElementById('confetti-layer');
+    for (let i = 0; i < 16; i++) {
+      const piece = document.createElement('span');
+      piece.className = `confetti-piece tile-${TILE_COLORS[i % TILE_COLORS.length]}`;
+      piece.style.insetInlineStart = `${Math.random() * 100}%`;
+      piece.style.animationDelay = `${Math.random() * 250}ms`;
+      layer.appendChild(piece);
+      piece.addEventListener('animationend', () => piece.remove());
+    }
+  }
   document.querySelectorAll('.reaction-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       if (state.myReaction) return;
       state.myReaction = btn.dataset.emoji;
-      document.querySelectorAll('.reaction-btn').forEach(b => { b.disabled = true; });
+      // Web Designer finding 2026-08-12: all 4 buttons used to gray out identically, no way to
+      // tell afterward which one you actually tapped. Mirrors the vote-btn.picked treatment.
+      document.querySelectorAll('.reaction-btn').forEach(b => { b.disabled = true; b.classList.toggle('picked', b === btn); });
       sfxReactionTap();
       send({ type: 'send_reaction', emoji: btn.dataset.emoji });
     });
@@ -585,11 +685,17 @@
     // their real avatar (tile color + emoji), not just a line of text.
     const champion = msg.leaderboard[0];
     const championEl = document.getElementById('final-share-champion');
+    document.getElementById('confetti-layer').innerHTML = '';
     if (champion && champion.wins > 0) {
       const avatarClass = champion.color ? `tile-${champion.color}` : 'tile-blue';
       championEl.innerHTML = `
         <div class="final-share-avatar ${avatarClass}">${champion.emoji || (champion.name || '?')[0]}</div>
         <div class="final-share-name">${CROWN_SVG} ${bidiSafe(champion.name)}</div>`;
+      // Critic finding 2026-08-12: the biggest emotional peak of the whole night (who won
+      // overall) had LESS visual "juice" than a single round's reveal (which already gets the
+      // reaction-burst layer). Same span+CSS-animation mechanism as spawnReactionBurst, just a
+      // burst of color instead of repeated emoji.
+      spawnConfetti();
     } else {
       championEl.innerHTML = `<div class="final-share-name">אף אחד לא ניצח הפעם</div>`;
     }
@@ -601,8 +707,12 @@
         <span class="n">${row.wins} נקודות</span>
       </div>`).join('');
     const votes = document.getElementById('total-votes-table');
-    votes.innerHTML = msg.totalVotesTable.map(row => `
-      <div class="votes-row"><span>${row.emoji ? row.emoji + ' ' : ''}${bidiSafe(row.name)}</span><span class="n">${row.votes}</span></div>`).join('');
+    // Small badge on the top row too, per idea-manager brainstorm 2026-08-12: a second real
+    // recognition moment (most talked-about, not just most wins), built from data already
+    // computed server-side, not a fabricated category. A distinct icon from the wins-leaderboard
+    // crown (👑) so the two different rankings never look interchangeable.
+    votes.innerHTML = msg.totalVotesTable.map((row, i) => `
+      <div class="votes-row"><span>${i === 0 && row.votes > 0 ? '🗣️ ' : ''}${row.emoji ? row.emoji + ' ' : ''}${bidiSafe(row.name)}</span><span class="n">${row.votes}</span></div>`).join('');
 
     // "הרגע החזק של הערב", per idea-manager brainstorm 2026-08-10: built entirely from real
     // recorded per-round vote data (personalHighlight), never a fabricated category.
@@ -656,16 +766,21 @@
   // ---------- Message router ----------
   function handleMessage(msg) {
     switch (msg.type) {
-      case 'room_created':
+      case 'room_created': {
         state.roomCode = msg.code; state.playerId = msg.playerId; state.hostId = msg.hostId;
         saveSession();
+        const meCreated = msg.players.find(p => p.id === msg.playerId);
+        if (meCreated) saveLastRoom(msg.code, meCreated.name);
         history.replaceState(null, '', `/room/${msg.code}`);
         renderLobby({ hostId: msg.hostId, players: msg.players, questionCount: msg.questionCount, customQuestions: msg.customQuestions, canStart: msg.players.length >= 3, startBlockedReason: startBlockedReason(msg.players.length) });
         break;
+      }
 
-      case 'room_joined':
+      case 'room_joined': {
         state.roomCode = msg.code; state.playerId = msg.playerId; state.hostId = msg.hostId;
         saveSession();
+        const meJoined = msg.players.find(p => p.id === msg.playerId);
+        if (meJoined) saveLastRoom(msg.code, meJoined.name);
         history.replaceState(null, '', `/room/${msg.code}`);
         if (msg.phase === 'lobby') {
           renderLobby({ hostId: msg.hostId, players: msg.players, questionCount: msg.questionCount, customQuestions: msg.customQuestions, canStart: msg.players.length >= 3, startBlockedReason: startBlockedReason(msg.players.length) });
@@ -675,6 +790,7 @@
           showScreen('waiting-next-round');
         }
         break;
+      }
 
       case 'room_not_found':
         clearSession();
@@ -746,6 +862,11 @@
   // ---------- Boot ----------
   function enterWarmJoin(code) {
     // כניסה חמה: מדלגים על מסך הבית, ישר להזנת שם, per _process/02-site-planner-plan.md.
+    // Site Planner finding 2026-08-12: skipping the home screen means skipping its ONLY
+    // explanation of what the game even is, so most real players (arriving via a WhatsApp link,
+    // per the marketing plan) never saw it. One line here closes that gap without re-adding the
+    // extra screen the warm-entry flow was specifically built to skip.
+    document.getElementById('warm-entry-context').classList.remove('hidden');
     state.mode = 'join';
     state.pendingJoinCode = code.toUpperCase();
     showScreen('name');
@@ -754,6 +875,7 @@
   function boot() {
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => { /* PWA install just won't be offered, the live game itself doesn't depend on this */ });
     document.getElementById('home-example-question').textContent = HOME_EXAMPLES[Math.floor(Math.random() * HOME_EXAMPLES.length)];
+    renderQuickRejoin();
     const pathMatch = location.pathname.match(/^\/room\/([A-Za-z0-9]{4})$/);
     const queryCode = new URLSearchParams(location.search).get('code');
     const warmCode = (pathMatch && pathMatch[1]) || queryCode;
