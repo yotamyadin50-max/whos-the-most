@@ -19,7 +19,7 @@ const { QUESTIONS, CLUSTER_SIZE } = require('./pack.js');
 const { ALLOWED_EMOJI, REACTION_EMOJI, MAX_CUSTOM_QUESTION_LEN, QUESTION_COUNT_OPTIONS } = require('./constants.js');
 
 const PORT = process.env.PORT || 8600;
-const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
+const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.txt': 'text/plain', '.xml': 'application/xml' };
 
 // Last-resort safety net, defense in depth alongside the specific server/wss/socket handlers
 // below: log and keep the process alive instead of letting one bad request take the whole

@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /room/
+
+Sitemap: https://whos-the-most.onrender.com/sitemap.xml
