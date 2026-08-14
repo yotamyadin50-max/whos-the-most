@@ -6,8 +6,9 @@
 // response including a 404/500, so a transient server error got permanently served from cache
 // afterward even once the server was healthy again. The version bump also flushes that
 // already-poisoned v1 cache via the activate handler's cleanup below.
-const CACHE_NAME = 'whosmost-shell-v2';
-const SHELL_FILES = ['/', '/style.css', '/script.js', '/manifest.json', '/assets/icon-192.png', '/assets/icon-512.png'];
+// v3: constants.js (2026-08-12) is now part of the app shell too, added to SHELL_FILES.
+const CACHE_NAME = 'whosmost-shell-v3';
+const SHELL_FILES = ['/', '/style.css', '/script.js', '/constants.js', '/manifest.json', '/assets/icon-192.png', '/assets/icon-512.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES)));
