@@ -712,7 +712,7 @@
     // computed server-side, not a fabricated category. A distinct icon from the wins-leaderboard
     // crown (👑) so the two different rankings never look interchangeable.
     votes.innerHTML = msg.totalVotesTable.map((row, i) => `
-      <div class="votes-row"><span>${i === 0 && row.votes > 0 ? '🗣️ ' : ''}${row.emoji ? row.emoji + ' ' : ''}${bidiSafe(row.name)}</span><span class="n">${row.votes}</span></div>`).join('');
+      <div class="votes-row"><span>${i === 0 && row.votes > 0 ? '<span title="הכי הרבה קולות בערב">🗣️</span> ' : ''}${row.emoji ? row.emoji + ' ' : ''}${bidiSafe(row.name)}</span><span class="n">${row.votes}</span></div>`).join('');
 
     // "הרגע החזק של הערב", per idea-manager brainstorm 2026-08-10: built entirely from real
     // recorded per-round vote data (personalHighlight), never a fabricated category.
